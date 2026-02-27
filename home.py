@@ -525,6 +525,95 @@ def register_home_handlers(app):
             }
             await client.views_update(view_id=body["view"]["id"], view=error_view)
 
+
+    @app.action("action_hot_booking")
+    async def handle_hot_booking(ack, body, client, logger):
+        # 1. Acknowledge the button click immediately
+        await ack()
+
+        try:
+            # 2. Open the "Skeleton" loading modal using the trigger_id
+            loading_view = {
+                "type": "modal",
+                "title": {
+                    "type": "plain_text",
+                    "text": "Hot Booking",
+                    "emoji": False
+                },
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "Please wait...\nFinding and booking the nearest available room for the next 30 minutes."
+                        }
+                    }
+                ]
+            }
+
+            # WE MUST SAVE THIS RESPONSE to get the newly created view_id!
+            response = await client.views_open(
+                trigger_id=body["trigger_id"],
+                view=loading_view
+            )
+
+            # Extract the ID of the modal we just opened
+            new_view_id = response["view"]["id"]
+
+            # 3. Execute your background task (Yarooms API)
+            await asyncio.sleep(2)  # Simulating API delay
+
+            # (In reality, you would calculate the current time, add 30 mins,
+            # and POST to Yarooms to find any free room and book it)
+            booked_room = "Focus Pod B"
+
+            # 4. Build the final Success View
+            success_view = {
+                "type": "modal",
+                "title": {
+                    "type": "plain_text",
+                    "text": "Room Booked",
+                    "emoji": False
+                },
+                "close": {
+                    "type": "plain_text",
+                    "text": "Done",
+                    "emoji": False
+                },
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"Success! We instantly booked *{booked_room}* for you."
+                        }
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": "You have this space for the next 30 minutes. Your Yarooms schedule is updated."
+                            }
+                        ]
+                    }
+                ]
+            }
+
+            # 5. Push the success view to the modal we opened in step 2
+            await client.views_update(
+                view_id=new_view_id,
+                view=success_view
+            )
+
+        except Exception as e:
+            logger.error(f"Error processing hot booking: {e}")
+            # Optional: You can send a DM to the user if the modal fails to update
+            await client.chat_postMessage(
+                channel=body["user"]["id"],
+                text="Sorry, we couldn't complete the hot booking right now."
+            )
+
     def skeleton_view(word):
         return {
             "type": "home",
