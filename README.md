@@ -1,27 +1,5 @@
 # SlackBotBookingsKSE
 
-SlackBotBookingsKSE/
-├── main.py
-├── home.py
-├── .env.example
-├── requirements.txt
-├── AGENTS.md
-├── README.md
-├── handlers/
-│   ├── home_common.py
-│   ├── home_home_tab.py
-│   ├── home_book_time.py
-│   ├── home_book_room.py
-│   └── home_hot_booking.py
-├── utils/
-│   ├── config_env.py
-│   ├── booking_utils.py
-│   ├── slack_views.py
-│   └── slack_notifications.py
-└── clients/
-    └── yarooms_client.py
-
-
 Slack Socket Mode bot for booking meeting spaces through Yarooms.
 
 ## What this bot does
