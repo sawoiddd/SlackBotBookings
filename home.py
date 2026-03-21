@@ -1,11 +1,12 @@
 """Thin orchestrator — builds the YaroomsClient (with optional Redis cache),
-warms the spaces cache, and registers all feature-specific Slack handler
-modules.
+warms the spaces cache, creates the DailyQuotaTracker, and registers all
+feature-specific Slack handler modules.
 """
 
 import logging
 
 from clients.yarooms_client import YaroomsClient
+from utils.daily_quota import DailyQuotaTracker
 
 from handlers.home_book_room import register_book_room_handlers
 from handlers.home_book_time import register_book_time_handlers
@@ -51,9 +52,14 @@ async def register_home_handlers(app, config: dict):
             subdomain=config.get("yarooms-subdomain", ""),
         )
 
+    # ── Daily quota tracker ───────────────────────────────────────────────
+    quota = DailyQuotaTracker()
+
+    # ── Redis (shared between spaces cache and quota tracker) ─────────────
     redis_client = await _build_redis_client(config.get("redis-url", ""))
     if redis_client:
         yarooms.set_redis_client(redis_client)
+        quota.set_redis_client(redis_client)
 
     # Warm the cache at startup so the first user gets an instant room list.
     try:
@@ -62,10 +68,12 @@ async def register_home_handlers(app, config: dict):
     except Exception as exc:
         logger.warning(f"Startup cache warm-up failed (will retry on first request): {exc}")
 
+    logger.info(f"Daily quota tracker ready: {quota.get_meta()}")
+
     register_home_tab_handlers(app)
-    register_book_time_handlers(app, yarooms)
-    register_book_room_handlers(app, yarooms)
-    register_hot_booking_handlers(app, yarooms)
+    register_book_time_handlers(app, yarooms, quota)
+    register_book_room_handlers(app, yarooms, quota)
+    register_hot_booking_handlers(app, yarooms, quota)
 
     return yarooms
 

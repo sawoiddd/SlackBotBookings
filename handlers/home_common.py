@@ -10,6 +10,7 @@ import logging
 from utils.booking_utils import (
     MAX_BOOKING_HOURS,
     MAX_BOOKING_MINUTES,
+    MAX_DAILY_BOOKING_MINUTES,
     _available_time_options,
     _covers_interval,
     _duration_minutes,
@@ -19,6 +20,7 @@ from utils.booking_utils import (
 from utils.slack_notifications import notify_booking_in_chat
 from utils.slack_views import (
     error_modal_with_context,
+    quota_exceeded_modal,
     simple_modal,
     skeleton_view,
 )
@@ -28,6 +30,7 @@ _logger = logging.getLogger(__name__)
 __all__ = [
     "MAX_BOOKING_HOURS",
     "MAX_BOOKING_MINUTES",
+    "MAX_DAILY_BOOKING_MINUTES",
     "_available_time_options",
     "_covers_interval",
     "_duration_minutes",
@@ -35,6 +38,7 @@ __all__ = [
     "_normalized_available_slots",
     "error_modal_with_context",
     "notify_booking_in_chat",
+    "quota_exceeded_modal",
     "simple_modal",
     "skeleton_view",
     "get_user_email",

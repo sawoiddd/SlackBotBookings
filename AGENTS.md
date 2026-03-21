@@ -9,8 +9,9 @@
 - **`handlers/home_hot_booking.py`** — Hot Booking action handler.
 - **`handlers/home_common.py`** — common module imported by feature handlers; re-exports shared booking/slack helpers and provides `get_user_email`, `safe_get_room_name`.
 - **`utils/booking_utils.py`** — booking/time helpers and constants: `MAX_BOOKING_HOURS`, `MAX_BOOKING_MINUTES`, `_duration_minutes`, `_available_time_options`, `_normalized_available_slots`, `_covers_interval`.
-- **`utils/slack_views.py`** — shared Slack view builders (currently `skeleton_view`).
+- **`utils/slack_views.py`** — shared Slack view builders (`skeleton_view`, `simple_modal`, `error_modal_with_context`, `quota_exceeded_modal`).
 - **`utils/slack_notifications.py`** — shared chat notification helper (`notify_booking_in_chat`).
+- **`utils/daily_quota.py`** — per-user daily booking quota tracker (`DailyQuotaTracker`). Uses Redis (primary) with in-memory fallback. Counter is incremented **only after** `create_booking` succeeds.
 - **`clients/yarooms_client.py`** — async Yarooms API client (`YaroomsClient`). Methods: `get_spaces`, `get_space_availability`, `find_available_space`, `create_booking`. Endpoint paths/response shapes are documented in the file and must be verified against https://api-docs.yarooms.com/#introduction.
 - **`utils/config_env.py`** — environment loader/validator for required Slack/Yarooms keys.
 
@@ -57,6 +58,11 @@ Both `YAROOMS_EMAIL` **and** `YAROOMS_PASSWORD` must be present when no API key 
 
 ## Business rules
 - **Max booking duration: 3 hours per booking** (`MAX_BOOKING_HOURS = 3`, `MAX_BOOKING_MINUTES = 180` in `utils/booking_utils.py`).
+- **Max 3 hours per user per day** (`MAX_DAILY_BOOKING_MINUTES = 180` in `utils/booking_utils.py`). Tracked by `DailyQuotaTracker` (`utils/daily_quota.py`); Redis key `yarooms:daily_quota:<email>:<date>` with 48 h TTL, in-memory fallback. Counter incremented **only after** `create_booking` API succeeds.
+  - `handle_book_time_submission`: inline error on `block_end_time` before skeleton.
+  - `handle_book_time_specific_room`: re-check before `create_booking`; shows `quota_exceeded_modal`.
+  - `handle_book_specific_slot`: check before `create_booking`; shows `quota_exceeded_modal`.
+  - `handle_hot_booking`: check before `create_booking`; shows `quota_exceeded_modal`.
 - Enforced in two places:
   - `handle_book_time_submission`: validated before `ack()` using `response_action="errors"` on `block_end_time` — inline modal error, no skeleton shown on failure.
   - `handle_book_specific_slot`: validated after unpacking the button value; on failure modal updates to a "Booking Rejected" error view.

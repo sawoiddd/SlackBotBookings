@@ -8,7 +8,7 @@ from datetime import datetime
 import handlers.home_common as common
 
 
-def register_book_room_handlers(app, yarooms):
+def register_book_room_handlers(app, yarooms, quota):
     """Register Book by Room and slot-booking handlers."""
 
     def _get_cache_meta() -> dict:
@@ -245,6 +245,21 @@ def register_book_room_handlers(app, yarooms):
             user_email = await common.get_user_email(client, user_id)
             logger.debug(f"Book by Room resolved email for {user_id}: '{user_email}'")
 
+            # ── Daily quota check ─────────────────────────────────────────
+            if user_email and duration > 0:
+                allowed, used, remaining = await quota.check_quota(
+                    user_email, booking_date, duration,
+                )
+                if not allowed:
+                    await client.views_update(
+                        view_id=body["view"]["id"],
+                        view=common.quota_exceeded_modal(
+                            used, remaining, duration,
+                            common.MAX_DAILY_BOOKING_MINUTES,
+                        ),
+                    )
+                    return
+
             try:
                 await yarooms.create_booking(
                     space_id=room_id,
@@ -268,6 +283,10 @@ def register_book_room_handlers(app, yarooms):
                     ),
                 )
                 return
+
+            # ── Record quota ONLY after successful booking ────────────────
+            if user_email and duration > 0:
+                await quota.record_booking(user_email, booking_date, duration)
 
             room_name = await common.safe_get_room_name(yarooms, room_id)
 

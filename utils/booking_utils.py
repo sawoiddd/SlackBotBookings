@@ -18,6 +18,7 @@ from datetime import datetime
 
 MAX_BOOKING_HOURS = 3
 MAX_BOOKING_MINUTES = MAX_BOOKING_HOURS * 60
+MAX_DAILY_BOOKING_MINUTES = MAX_BOOKING_HOURS * 60  # per-user daily ceiling (same as per-booking for now)
 _TIME_RE = re.compile(r"(\d{1,2}):(\d{2})(?::(\d{2}))?")
 
 

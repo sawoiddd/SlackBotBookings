@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import handlers.home_common as common
 
 
-def register_hot_booking_handlers(app, yarooms):
+def register_hot_booking_handlers(app, yarooms, quota):
     """Register Hot Booking action handler."""
 
     @app.action("action_hot_booking")
@@ -27,12 +27,28 @@ def register_hot_booking_handlers(app, yarooms):
             start_time = now.strftime("%H:%M")
             end_time = (now + timedelta(minutes=30)).strftime("%H:%M")
 
+            user_email = await common.get_user_email(client, user_id)
+            logger.debug(f"Hot Booking resolved email for {user_id}: '{user_email}'")
+
+            # ── Daily quota check ─────────────────────────────────────────
+            booking_duration = 30
+            if user_email:
+                allowed, used, remaining = await quota.check_quota(
+                    user_email, today, booking_duration,
+                )
+                if not allowed:
+                    await client.views_update(
+                        view_id=new_view_id,
+                        view=common.quota_exceeded_modal(
+                            used, remaining, booking_duration,
+                            common.MAX_DAILY_BOOKING_MINUTES,
+                        ),
+                    )
+                    return
+
             space = await yarooms.find_available_space(today, start_time, end_time)
             if space is None:
                 raise RuntimeError("No rooms available right now.")
-
-            user_email = await common.get_user_email(client, user_id)
-            logger.debug(f"Hot Booking resolved email for {user_id}: '{user_email}'")
 
             await yarooms.create_booking(
                 space_id=space["id"],
@@ -42,6 +58,10 @@ def register_hot_booking_handlers(app, yarooms):
                 user_email=user_email,
                 title="Hot Booking via Slack",
             )
+
+            # ── Record quota ONLY after successful booking ────────────────
+            if user_email:
+                await quota.record_booking(user_email, today, booking_duration)
 
             await client.views_update(
                 view_id=new_view_id,

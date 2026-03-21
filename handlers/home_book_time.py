@@ -130,7 +130,7 @@ def _choose_room_view(
     }
 
 
-def register_book_time_handlers(app, yarooms):
+def register_book_time_handlers(app, yarooms, quota):
     """Register Book by Time action/view handlers."""
 
     @app.action("action_book_time")
@@ -226,6 +226,24 @@ def register_book_time_handlers(app, yarooms):
                 errors={"block_start_time": "This time has already passed. Please select a future time."},
             )
             return
+
+        # ── Daily quota pre-check ────────────────────────────────────────
+        user_email_for_quota = await common.get_user_email(client, user_id)
+        if user_email_for_quota:
+            allowed, used, remaining = await quota.check_quota(
+                user_email_for_quota, selected_date, duration,
+            )
+            if not allowed:
+                await ack(
+                    response_action="errors",
+                    errors={
+                        "block_end_time": (
+                            f"Daily limit: {used}/{common.MAX_DAILY_BOOKING_MINUTES} min used. "
+                            f"Only {remaining} min left today."
+                        ),
+                    },
+                )
+                return
 
         await ack(response_action="update", view=common.skeleton_view("Searching"))
 
@@ -371,6 +389,22 @@ def register_book_time_handlers(app, yarooms):
             user_email = await common.get_user_email(client, user_id)
             logger.debug(f"Book by Time resolved email for {user_id}: '{user_email}'")
 
+            # ── Daily quota re-check (guards against concurrent bookings) ─
+            booking_duration = common._duration_minutes(start_time, end_time)
+            if user_email and booking_duration > 0:
+                allowed, used, remaining = await quota.check_quota(
+                    user_email, booking_date, booking_duration,
+                )
+                if not allowed:
+                    await _safe_modal_update(
+                        common.quota_exceeded_modal(
+                            used, remaining, booking_duration,
+                            common.MAX_DAILY_BOOKING_MINUTES,
+                        ),
+                        stage="quota_exceeded",
+                    )
+                    return
+
             try:
                 await yarooms.create_booking(
                     space_id=room_id,
@@ -394,6 +428,10 @@ def register_book_time_handlers(app, yarooms):
                     stage="booking_failed",
                 )
                 return
+
+            # ── Record quota ONLY after successful booking ────────────────
+            if user_email and booking_duration > 0:
+                await quota.record_booking(user_email, booking_date, booking_duration)
 
             room_name = await common.safe_get_room_name(yarooms, room_id)
             await _safe_modal_update(

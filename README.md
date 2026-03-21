@@ -13,6 +13,7 @@ Slack Socket Mode bot for booking Skype rooms and Silent Boxes through Yarooms.
 ### Business rules
 
 - **Max 3 hours per booking.** Enforced with inline modal errors and slot filtering.
+- **Max 3 hours per user per day.** Tracked locally via Redis (primary) with in-memory fallback. Counter is incremented only after a successful Yarooms API booking. When the limit is reached, a "Daily Limit Reached" modal shows used/remaining minutes.
 - **No past bookings.** Slots whose start time has already passed are rejected or filtered out automatically.
 - Only **Skype rooms** and **Silent Boxes** are shown (other Yarooms space types are ignored).
 
@@ -33,7 +34,8 @@ clients/
   yarooms_client.py              Async Yarooms API client (aiohttp)
 utils/
   booking_utils.py               Time/duration helpers, slot normalisation, constants
-  slack_views.py                 Shared Slack view builders (skeleton_view)
+  daily_quota.py                 Per-user daily booking quota tracker (Redis + memory)
+  slack_views.py                 Shared Slack view builders (skeleton, modal, quota)
   slack_notifications.py         Booking-confirmation DM helper
   config_env.py                  .env loader and required-variable validator
 AGENTS.md                        Coding guidelines for AI-assisted development
