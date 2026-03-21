@@ -1,56 +1,117 @@
 # SlackBotBookingsKSE
 
-Slack Socket Mode bot for booking meeting spaces through Yarooms.
+Slack Socket Mode bot for booking Skype rooms and Silent Boxes through Yarooms.
 
-## What this bot does
-- Publishes a Home tab with 3 actions:
-  - `Book time` - pick date/time, bot finds a free room.
-  - `Book room` - pick a room/date, then choose an available slot.
-  - `Hot Booking` - books a room for the next 30 minutes.
-- Enforces booking duration rule: max **3 hours** per booking.
+## Features
+
+| Action | What it does |
+|--------|-------------|
+| **Book time** | Pick a date and time range → bot finds all available rooms → you choose one. |
+| **Book room** | Pick a specific room and date → see its schedule → tap a slot to book. |
+| **Hot Booking** | One-tap booking of the nearest available room for the next 30 minutes. |
+
+### Business rules
+
+- **Max 3 hours per booking.** Enforced with inline modal errors and slot filtering.
+- **No past bookings.** Slots whose start time has already passed are rejected or filtered out automatically.
+- Only **Skype rooms** and **Silent Boxes** are shown (other Yarooms space types are ignored).
+
+---
 
 ## Project structure
-- `main.py` - app entrypoint, loads config from `.env`, starts Socket Mode handler.
-- `home.py` - thin orchestrator that wires feature-specific handler registrars.
-- `handlers/` - feature modules (`home_home_tab.py`, `home_book_time.py`, `home_book_room.py`, `home_hot_booking.py`) and `home_common.py`.
-- `utils/` - shared helpers (`booking_utils.py`, `slack_views.py`, `slack_notifications.py`).
-- `clients/yarooms_client.py` - async Yarooms API client (`aiohttp`).
-- `config_env.py` - `.env` loader and required-variable validation.
-- `AGENTS.md` - project-specific coding guidance.
+
+```
+main.py                          Entrypoint — logging, startup fingerprint, graceful shutdown
+home.py                          Orchestrator — builds YaroomsClient, registers handler modules
+handlers/
+  home_home_tab.py               Home tab (app_home_opened) and dashboard view
+  home_book_time.py              Book by Time action/view handlers
+  home_book_room.py              Book by Room schedule + slot booking handlers
+  home_hot_booking.py            Hot Booking action handler
+  home_common.py                 Common module — re-exports shared helpers
+clients/
+  yarooms_client.py              Async Yarooms API client (aiohttp)
+utils/
+  booking_utils.py               Time/duration helpers, slot normalisation, constants
+  slack_views.py                 Shared Slack view builders (skeleton_view)
+  slack_notifications.py         Booking-confirmation DM helper
+  config_env.py                  .env loader and required-variable validator
+AGENTS.md                        Coding guidelines for AI-assisted development
+```
+
+---
 
 ## Requirements
-- Python 3.10+
-- Slack app with Socket Mode enabled
-- Yarooms API token
 
-Install dependencies:
+- Python 3.10+
+- Slack app with **Socket Mode** enabled
+- Yarooms account (static API key **or** email/password)
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Configuration (.env)
-Create your local env file:
+---
+
+## Configuration
+
+Copy the example env file and fill in your credentials:
 
 ```bash
 cp .env.example .env
 ```
 
-Required variables:
-- `SLACK_APP_TOKEN`
-- `SLACK_BOT_TOKEN`
-- `YAROOMS_API_KEY`
+### Option A — Static API token
 
-Optional:
-- `YAROOMS_BASE_URL` (defaults to `https://api.yarooms.com`)
+```env
+SLACK_APP_TOKEN=xapp-...
+SLACK_BOT_TOKEN=xoxb-...
+YAROOMS_API_KEY=<your Yarooms API token>
+YAROOMS_BASE_URL=https://api.yarooms.com
+LOG_LEVEL=DEBUG
+```
 
-Do not commit `.env` or token values.
+### Option B — Email / password login
+
+```env
+SLACK_APP_TOKEN=xapp-...
+SLACK_BOT_TOKEN=xoxb-...
+YAROOMS_EMAIL=you@example.com
+YAROOMS_PASSWORD=secret
+YAROOMS_SUBDOMAIN=KSE
+YAROOMS_BASE_URL=https://kse.eu.yarooms.com
+REDIS_URL=redis://localhost:6379/0
+LOG_LEVEL=DEBUG
+```
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `SLACK_APP_TOKEN` | ✅ | Socket Mode app-level token (`xapp-…`) |
+| `SLACK_BOT_TOKEN` | ✅ | Bot user token (`xoxb-…`) |
+| `YAROOMS_API_KEY` | ✅ (option A) | Takes precedence over email/password |
+| `YAROOMS_EMAIL` | ✅ (option B) | Must pair with `YAROOMS_PASSWORD` |
+| `YAROOMS_PASSWORD` | ✅ (option B) | Must pair with `YAROOMS_EMAIL` |
+| `YAROOMS_SUBDOMAIN` | ❌ | Sent as query param to `/api/auth` |
+| `YAROOMS_BASE_URL` | ❌ | Defaults to `https://api.yarooms.com` |
+| `REDIS_URL` | ❌ | Falls back to in-memory cache |
+| `LOG_LEVEL` | ❌ | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
+
+> **Never commit `.env` or token values.** The file is already in `.gitignore`.
+
+---
 
 ## Slack app setup
-Required OAuth scope:
-- `users:read.email`
 
-This scope is required because booking handlers resolve user email via `client.users_info(user=user_id)` before creating Yarooms bookings.
+### Required OAuth scopes
+
+| Scope | Why |
+|-------|-----|
+| `users:read` | Resolve Slack user profiles in booking handlers |
+| `users:read.email` | Access `profile.email` for Yarooms on-behalf-of bookings |
+
+After adding scopes, **reinstall the app to your workspace** for them to take effect.
+
+---
 
 ## Run locally
 
@@ -58,29 +119,69 @@ This scope is required because booking handlers resolve user email via `client.u
 python3 main.py
 ```
 
-## Runtime flow (high level)
-1. Slack event/action reaches a feature handler in `handlers/`.
-2. Handler sends immediate `ack()`.
-3. Bot opens/updates modal views (`views_open`, `views_update`) or publishes Home tab (`views_publish`).
-4. Handler calls `YaroomsClient` methods to read availability and create bookings.
+On startup the bot logs a fingerprint line with `pid` and UTC timestamp — useful for detecting stale duplicate instances:
 
-## Yarooms integration
-Implemented in `clients/yarooms_client.py`:
-- `get_spaces()`
-- `get_space_availability(space_id, date)`
-- `find_available_space(date, start_time, end_time)`
-- `create_booking(space_id, date, start_time, end_time, user_email, title)`
+```
+Bot starting  pid=12345  ts=2026-03-20T10:00:00Z
+```
 
-Before production rollout, confirm endpoint paths and response envelopes against official docs:
-- https://api-docs.yarooms.com/#introduction
+On shutdown (Ctrl-C / SIGINT), the Yarooms HTTP session is closed cleanly via `YaroomsClient.close()`.
+
+---
+
+## Runtime flow
+
+```
+Slack event/action
+  │
+  ▼
+Feature handler (handlers/)
+  │  await ack()
+  ▼
+Modal / Home tab update
+  │  views_open / views_update / views_publish
+  ▼
+YaroomsClient
+  │  get_spaces_cached → get_space_availability → create_booking
+  ▼
+Booking confirmation DM (notify_booking_in_chat)
+```
+
+### Key implementation details
+
+- **Spaces cache** is warmed at startup via `get_spaces_cached(force_refresh=True)`. Backend: Redis (primary) with automatic in-memory fallback.
+- **Book by Time** checks all cached rooms in parallel (bounded by `MAX_PARALLEL_AVAILABILITY_CHECKS = 8`) and presents a "Choose a Room" picker. A live re-check runs before the final `create_booking`.
+- **Book by Room** passes the selected date to the slot-booking step via `private_metadata`. Slot button values use `"{room_id}_{start}_{end}"` format, parsed with `rsplit("_", 2)` so room IDs with underscores are safe.
+- **create_booking** dual strategy: (1) resolve email → Yarooms `account_id` via `/api/accounts` → on-behalf-of booking; (2) on failure, fall back to bot-account booking with `description="Booked via Slack by <email>"`.
+- In email/password mode, `YaroomsClient` auto-refreshes expired tokens on HTTP 401 and retries once.
+
+---
+
+## Yarooms API client
+
+Implemented in `clients/yarooms_client.py`. Key methods:
+
+| Method | Description |
+|--------|-------------|
+| `get_spaces()` | Fetch and filter spaces (Skype rooms + Silent Boxes only) |
+| `get_spaces_cached()` | Cached version with TTL, stale fallback, single-flight lock |
+| `get_space_availability(space_id, date, start_time?, end_time?)` | Available slots for one room on a date |
+| `find_available_space(date, start_time, end_time)` | First room covering the requested interval |
+| `create_booking(space_id, date, start_time, end_time, user_email?, title?)` | Create booking (dual on-behalf-of / bot-account strategy) |
+| `resolve_account_id(email)` | Map email → Yarooms account ID (cached 10 min) |
+| `close()` | Close the underlying aiohttp session |
+
+Verify endpoint paths and response shapes against the official docs before any API changes: https://api-docs.yarooms.com/#introduction
+
+---
 
 ## Troubleshooting
-- Bot starts but no Home tab updates:
-  - verify `SLACK_APP_TOKEN` / `SLACK_BOT_TOKEN` in `.env`
-  - ensure Socket Mode is enabled in Slack app settings
-- Booking actions fail with user info/email issues:
-  - verify OAuth scope `users:read.email`
-  - reinstall app to workspace after scope changes
-- Room list/booking fails:
-  - verify `YAROOMS_API_KEY` and `YAROOMS_BASE_URL`
-  - check logs for HTTP errors from Yarooms API
+
+| Symptom | Check |
+|---------|-------|
+| Bot starts but no Home tab updates | `SLACK_APP_TOKEN` / `SLACK_BOT_TOKEN` in `.env`; Socket Mode enabled in Slack app settings |
+| Booking actions fail with email errors | `users:read` + `users:read.email` scopes granted; app reinstalled after scope changes |
+| Room list empty or booking fails | `YAROOMS_API_KEY` (or email/password) and `YAROOMS_BASE_URL` are correct; check logs for HTTP errors |
+| "Unclosed client session" warnings | Ensure the bot is stopped gracefully (Ctrl-C) so `YaroomsClient.close()` runs |
+| Duplicate bot responses | Check startup fingerprint (`pid` / `ts`) in logs — kill stale instances |
+| Redis cache not used | Verify `REDIS_URL` in `.env`; logs will show "Redis unavailable … falling back to in-memory cache" on connection failure |

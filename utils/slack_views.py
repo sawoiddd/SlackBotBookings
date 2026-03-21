@@ -1,3 +1,6 @@
+"""Shared Slack Block Kit view builders used by multiple handlers."""
+
+
 def skeleton_view(word: str) -> dict:
     """Loading placeholder for modal updates. Type is 'modal' so Slack renders it correctly."""
     return {

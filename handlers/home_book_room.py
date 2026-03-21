@@ -1,3 +1,8 @@
+"""Book by Room — user picks a specific room and date, sees its available
+slots schedule, and taps a slot to book.  Past slots are filtered out and a
+live re-check is performed before create_booking.
+"""
+
 from datetime import datetime
 
 import handlers.home_common as common
@@ -6,27 +11,60 @@ import handlers.home_common as common
 def register_book_room_handlers(app, yarooms):
     """Register Book by Room and slot-booking handlers."""
 
+    def _get_cache_meta() -> dict:
+        """Fetch Yarooms cache metadata (safe for logging)."""
+        fn = getattr(yarooms, "get_spaces_cache_meta", None)
+        return fn() if callable(fn) else {}
+
     @app.action("action_book_room")
     async def open_book_room_modal(ack, body, client, logger):
-        """Open Book by Room modal with live room list."""
+        """Open Book by Room modal with cached Yarooms list and explicit error state."""
         await ack()
         try:
+            options = []
+            load_error_text = ""
             try:
-                spaces = await yarooms.get_spaces()
-                options = [
-                    {
-                        "text": {"type": "plain_text", "text": s["name"], "emoji": False},
-                        "value": s["id"],
-                    }
-                    for s in spaces
-                ]
+                logger.debug(f"Yarooms spaces cache meta(before): {_get_cache_meta()}")
+
+                spaces = await yarooms.get_spaces_cached()
+                if not spaces:
+                    spaces = await yarooms.get_spaces_cached(
+                        force_refresh=True,
+                        allow_stale_on_error=False,
+                    )
+
+                for space in spaces:
+                    room_id = space.get("id") or space.get("spaceId")
+                    room_name = space.get("name") or space.get("title")
+                    if room_id and room_name:
+                        options.append(
+                            {
+                                "text": {"type": "plain_text", "text": room_name, "emoji": False},
+                                "value": str(room_id),
+                            }
+                        )
+                if not options:
+                    raise RuntimeError("Yarooms returned no selectable spaces.")
             except Exception as api_err:
-                logger.warning(f"Could not fetch Yarooms spaces, using static fallback: {api_err}")
-                options = [
-                    {"text": {"type": "plain_text", "text": "Conference Room A", "emoji": False}, "value": "roomA"},
-                    {"text": {"type": "plain_text", "text": "Focus Pod B", "emoji": False}, "value": "roomB"},
-                    {"text": {"type": "plain_text", "text": "Meeting Room C", "emoji": False}, "value": "roomC"},
-                ]
+                logger.error(
+                    f"Could not fetch Yarooms spaces: error={api_err}; cache_meta={_get_cache_meta()}"
+                )
+                load_error_text = str(api_err)
+
+            logger.info(f"Book by Room options: count={len(options)}")
+            if options:
+                logger.debug(f"Yarooms spaces cache meta(after): {_get_cache_meta()}")
+
+            if not options:
+                await client.views_open(
+                    trigger_id=body["trigger_id"],
+                    view=common.error_modal_with_context(
+                        "Book by Room",
+                        "❌ Could not load rooms from Yarooms right now. Please try again in a few seconds.",
+                        [f"Details: `{load_error_text[:120]}`" if load_error_text else "Details: unavailable"],
+                    ),
+                )
+                return
 
             await client.views_open(
                 trigger_id=body["trigger_id"],
@@ -86,6 +124,12 @@ def register_book_room_handlers(app, yarooms):
             slots = await yarooms.get_space_availability(room_id, selected_date)
             available_slots = common._normalized_available_slots(slots)
 
+            # Drop slots whose start time has already passed
+            available_slots = [
+                (s, e) for s, e in available_slots
+                if not common._is_past_slot(selected_date, s)
+            ]
+
             if not available_slots:
                 slot_blocks = [
                     {
@@ -97,21 +141,20 @@ def register_book_room_handlers(app, yarooms):
                     }
                 ]
             else:
-                slot_blocks = []
-                for start, end in available_slots:
-                    slot_blocks.append(
-                        {
-                            "type": "section",
-                            "text": {"type": "mrkdwn", "text": f"*{start} – {end}*"},
-                            "accessory": {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "Book Slot", "emoji": False},
-                                "style": "primary",
-                                "value": f"{room_id}_{start}_{end}",
-                                "action_id": "action_book_specific_slot",
-                            },
-                        }
-                    )
+                slot_blocks = [
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": f"*{start} – {end}*"},
+                        "accessory": {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Book Slot", "emoji": False},
+                            "style": "primary",
+                            "value": f"{room_id}_{start}_{end}",
+                            "action_id": "action_book_specific_slot",
+                        },
+                    }
+                    for start, end in available_slots
+                ]
 
             await client.views_update(
                 view_id=body["view"]["id"],
@@ -137,20 +180,10 @@ def register_book_room_handlers(app, yarooms):
             logger.error(f"Error handling room schedule submission: {e}")
             await client.views_update(
                 view_id=body["view"]["id"],
-                view={
-                    "type": "modal",
-                    "title": {"type": "plain_text", "text": "Error", "emoji": False},
-                    "close": {"type": "plain_text", "text": "Close", "emoji": False},
-                    "blocks": [
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": "❌ Could not load the room schedule. Please try again.",
-                            },
-                        }
-                    ],
-                },
+                view=common.simple_modal(
+                    "Error",
+                    "❌ Could not load the room schedule. Please try again.",
+                ),
             )
 
     @app.action("action_book_specific_slot")
@@ -166,28 +199,34 @@ def register_book_room_handlers(app, yarooms):
             if duration <= 0 or duration > common.MAX_BOOKING_MINUTES:
                 await client.views_update(
                     view_id=body["view"]["id"],
-                    view={
-                        "type": "modal",
-                        "title": {"type": "plain_text", "text": "Booking Rejected", "emoji": False},
-                        "close": {"type": "plain_text", "text": "Close", "emoji": False},
-                        "blocks": [
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": f"❌ This slot exceeds the *{common.MAX_BOOKING_HOURS}-hour* per-booking limit and cannot be booked.",
-                                },
-                            }
-                        ],
-                    },
+                    view=common.simple_modal(
+                        "Booking Rejected",
+                        f"❌ This slot exceeds the *{common.MAX_BOOKING_HOURS}-hour* per-booking limit and cannot be booked.",
+                    ),
                 )
                 return
 
             booking_date = body["view"].get("private_metadata") or datetime.now().strftime("%Y-%m-%d")
 
-            user_email = await common.get_user_email(client, user_id)
+            if common._is_past_slot(booking_date, start_time):
+                await client.views_update(
+                    view_id=body["view"]["id"],
+                    view=common.simple_modal(
+                        "Time Passed",
+                        "❌ This time slot has already passed. Please refresh the schedule and choose a future slot.",
+                    ),
+                )
+                return
 
-            latest_slots = await yarooms.get_space_availability(room_id, booking_date)
+            try:
+                latest_slots = await yarooms.get_space_availability(room_id, booking_date)
+            except Exception as avail_err:
+                logger.warning(
+                    f"Book by Room re-check failed: room={room_id}, date={booking_date}, "
+                    f"err={type(avail_err).__name__}: {avail_err}"
+                )
+                latest_slots = []
+
             latest_available = common._normalized_available_slots(latest_slots)
             still_available = any(
                 common._covers_interval(available_slot, start_time, end_time)
@@ -196,30 +235,39 @@ def register_book_room_handlers(app, yarooms):
             if not still_available:
                 await client.views_update(
                     view_id=body["view"]["id"],
-                    view={
-                        "type": "modal",
-                        "title": {"type": "plain_text", "text": "Slot Unavailable", "emoji": False},
-                        "close": {"type": "plain_text", "text": "Close", "emoji": False},
-                        "blocks": [
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": "❌ This slot is no longer available. Please refresh the schedule and choose another one.",
-                                },
-                            }
-                        ],
-                    },
+                    view=common.simple_modal(
+                        "Slot Unavailable",
+                        "❌ This slot is no longer available. Please refresh the schedule and choose another one.",
+                    ),
                 )
                 return
 
-            await yarooms.create_booking(
-                space_id=room_id,
-                date=booking_date,
-                start_time=start_time,
-                end_time=end_time,
-                user_email=user_email,
-            )
+            user_email = await common.get_user_email(client, user_id)
+            logger.debug(f"Book by Room resolved email for {user_id}: '{user_email}'")
+
+            try:
+                await yarooms.create_booking(
+                    space_id=room_id,
+                    date=booking_date,
+                    start_time=start_time,
+                    end_time=end_time,
+                    user_email=user_email,
+                )
+            except Exception as book_err:
+                logger.error(
+                    f"Book by Room create_booking failed: room={room_id}, date={booking_date}, "
+                    f"start={start_time}, end={end_time}, err={type(book_err).__name__}: {book_err}"
+                )
+                error_detail = str(book_err)[:120]
+                await client.views_update(
+                    view_id=body["view"]["id"],
+                    view=common.error_modal_with_context(
+                        "Booking Failed",
+                        "❌ The room could not be booked — it may have just been taken. Please try again.",
+                        [f"Details: `{error_detail}`"],
+                    ),
+                )
+                return
 
             room_name = await common.safe_get_room_name(yarooms, room_id)
 
@@ -260,20 +308,8 @@ def register_book_room_handlers(app, yarooms):
             logger.error(f"Error booking specific slot: {e}")
             await client.views_update(
                 view_id=body["view"]["id"],
-                view={
-                    "type": "modal",
-                    "title": {"type": "plain_text", "text": "Booking Failed", "emoji": False},
-                    "close": {"type": "plain_text", "text": "Close", "emoji": False},
-                    "blocks": [
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": "Sorry, we couldn't complete this booking. The slot might no longer be available.",
-                            },
-                        }
-                    ],
-                },
+                view=common.simple_modal(
+                    "Booking Failed",
+                    "Sorry, we couldn't complete this booking. The slot might no longer be available.",
+                ),
             )
-
-

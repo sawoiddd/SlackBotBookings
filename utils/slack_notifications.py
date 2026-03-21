@@ -1,3 +1,6 @@
+"""Shared Slack chat notification helpers — sends booking confirmation DMs."""
+
+
 async def notify_booking_in_chat(
     client,
     logger,

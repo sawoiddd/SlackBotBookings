@@ -1,3 +1,8 @@
+"""Home tab event handler — renders the Yarooms Booking Dashboard with three
+action entry-points: Book time, Book room, Hot Booking.
+"""
+
+
 def _home_action_block(text: str, button_text: str, value: str, action_id: str) -> dict:
     """Build a standard Home tab section with an action button."""
     return {
