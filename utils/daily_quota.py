@@ -124,6 +124,40 @@ class DailyQuotaTracker:
         )
         return final
 
+    async def record_cancellation(
+        self, user_email: str, date: str, minutes: int,
+    ) -> int:
+        """Decrease the user's daily total after a successful cancellation."""
+        rkey = f"{_REDIS_KEY_PREFIX}{user_email.lower().strip()}:{date}"
+        new_total: int | None = None
+
+        if self._redis:
+            try:
+                current = await self._redis.get(rkey)
+                current_int = int(current) if current is not None else 0
+                target = max(0, current_int - max(0, minutes))
+                await self._redis.set(rkey, target)
+                ttl = await self._redis.ttl(rkey)
+                if ttl < 0:
+                    await self._redis.expire(rkey, _REDIS_TTL_SECONDS)
+                new_total = target
+            except Exception as exc:
+                logger.warning(f"Quota Redis decrement failed ({exc}); falling back to memory")
+                new_total = None
+
+        mk = _mem_key(user_email, date)
+        _mem_cleanup()
+        prev, ts = _MEMORY_STORE.get(mk, (0, time.time()))
+        mem_total = max(0, prev - max(0, minutes))
+        _MEMORY_STORE[mk] = (mem_total, ts)
+
+        final = new_total if new_total is not None else mem_total
+        logger.info(
+            f"Quota cancellation recorded: email={user_email}, date={date}, "
+            f"-{minutes} min, new_total={final}/{self.max_daily_minutes}"
+        )
+        return final
+
     # ── diagnostics ──────────────────────────────────────────────────────
 
     def get_meta(self) -> dict:

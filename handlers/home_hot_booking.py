@@ -50,7 +50,7 @@ def register_hot_booking_handlers(app, yarooms, quota):
             if space is None:
                 raise RuntimeError("No rooms available right now.")
 
-            await yarooms.create_booking(
+            booking_result = await yarooms.create_booking(
                 space_id=space["id"],
                 date=today,
                 start_time=start_time,
@@ -62,6 +62,8 @@ def register_hot_booking_handlers(app, yarooms, quota):
             # ── Record quota ONLY after successful booking ────────────────
             if user_email:
                 await quota.record_booking(user_email, today, booking_duration)
+
+            booking_id = yarooms.extract_booking_id(booking_result)
 
             await client.views_update(
                 view_id=new_view_id,
@@ -95,6 +97,8 @@ def register_hot_booking_handlers(app, yarooms, quota):
                 booking_date=today,
                 start_time=start_time,
                 end_time=end_time,
+                booking_id=booking_id,
+                user_email=user_email,
             )
         except Exception as e:
             logger.error(f"Error processing hot booking: {e}")

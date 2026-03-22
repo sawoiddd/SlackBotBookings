@@ -406,7 +406,7 @@ def register_book_time_handlers(app, yarooms, quota):
                     return
 
             try:
-                await yarooms.create_booking(
+                booking_result = await yarooms.create_booking(
                     space_id=room_id,
                     date=booking_date,
                     start_time=start_time,
@@ -432,6 +432,8 @@ def register_book_time_handlers(app, yarooms, quota):
             # ── Record quota ONLY after successful booking ────────────────
             if user_email and booking_duration > 0:
                 await quota.record_booking(user_email, booking_date, booking_duration)
+
+            booking_id = yarooms.extract_booking_id(booking_result)
 
             room_name = await common.safe_get_room_name(yarooms, room_id)
             await _safe_modal_update(
@@ -469,6 +471,8 @@ def register_book_time_handlers(app, yarooms, quota):
                 booking_date=booking_date,
                 start_time=start_time,
                 end_time=end_time,
+                booking_id=booking_id,
+                user_email=user_email,
             )
         except Exception:
             logger.exception(

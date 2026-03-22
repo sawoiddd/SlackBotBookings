@@ -348,7 +348,7 @@ def register_book_room_handlers(app, yarooms, quota):
 
             # ── Create booking ───────────────────────────────────────────
             try:
-                await yarooms.create_booking(
+                booking_result = await yarooms.create_booking(
                     space_id=room_id,
                     date=booking_date,
                     start_time=start_time,
@@ -373,6 +373,8 @@ def register_book_room_handlers(app, yarooms, quota):
             # ── Record quota ONLY after success ──────────────────────────
             if user_email and duration > 0:
                 await quota.record_booking(user_email, booking_date, duration)
+
+            booking_id = yarooms.extract_booking_id(booking_result)
 
             room_name = await common.safe_get_room_name(yarooms, room_id)
 
@@ -411,6 +413,8 @@ def register_book_room_handlers(app, yarooms, quota):
                 booking_date=booking_date,
                 start_time=start_time,
                 end_time=end_time,
+                booking_id=booking_id,
+                user_email=user_email,
             )
         except Exception as e:
             logger.error(f"Error in room time booking: {e}", exc_info=True)
@@ -519,7 +523,7 @@ def register_book_room_handlers(app, yarooms, quota):
                     return
 
             try:
-                await yarooms.create_booking(
+                booking_result = await yarooms.create_booking(
                     space_id=room_id,
                     date=booking_date,
                     start_time=start_time,
@@ -545,6 +549,8 @@ def register_book_room_handlers(app, yarooms, quota):
             # ── Record quota ONLY after successful booking ────────────────
             if user_email and duration > 0:
                 await quota.record_booking(user_email, booking_date, duration)
+
+            booking_id = yarooms.extract_booking_id(booking_result)
 
             room_name = await common.safe_get_room_name(yarooms, room_id)
 
@@ -580,6 +586,8 @@ def register_book_room_handlers(app, yarooms, quota):
                 booking_date=booking_date,
                 start_time=start_time,
                 end_time=end_time,
+                booking_id=booking_id,
+                user_email=user_email,
             )
         except Exception as e:
             logger.error(f"Error booking specific slot: {e}")

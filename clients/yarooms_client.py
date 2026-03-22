@@ -1195,4 +1195,27 @@ class YaroomsClient:
         # Strategy 2: book under the authenticated bot account
         return await self._request("POST", "/api/bookings", data=payload)
 
+    @staticmethod
+    def extract_booking_id(create_result: dict | list | None) -> str | None:
+        """Extract booking id from Yarooms create_booking response shapes."""
+        if isinstance(create_result, dict):
+            data = create_result.get("data")
+            if isinstance(data, dict):
+                booking_id = data.get("id")
+                if booking_id is not None:
+                    return str(booking_id)
+            # Some tenants may return id at root
+            root_id = create_result.get("id")
+            if root_id is not None:
+                return str(root_id)
+        return None
+
+    async def delete_booking(self, booking_id: str) -> bool:
+        """Cancel a booking by id using ``DELETE /api/bookings/:ID``."""
+        result = await self._request("DELETE", f"/api/bookings/{booking_id}")
+        if isinstance(result, dict):
+            status = result.get("status")
+            return status in (1, "1", True)
+        return False
+
 

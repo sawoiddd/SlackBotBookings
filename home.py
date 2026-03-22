@@ -10,6 +10,7 @@ from utils.daily_quota import DailyQuotaTracker
 
 from handlers.home_book_room import register_book_room_handlers
 from handlers.home_book_time import register_book_time_handlers
+from handlers.home_cancel_booking import register_cancel_booking_handlers
 from handlers.home_home_tab import register_home_tab_handlers
 from handlers.home_hot_booking import register_hot_booking_handlers
 
@@ -74,6 +75,7 @@ async def register_home_handlers(app, config: dict):
     register_book_time_handlers(app, yarooms, quota)
     register_book_room_handlers(app, yarooms, quota)
     register_hot_booking_handlers(app, yarooms, quota)
+    register_cancel_booking_handlers(app, yarooms, quota)
 
     return yarooms
 
