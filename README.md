@@ -9,11 +9,13 @@ Slack Socket Mode bot for booking Skype rooms and Silent Boxes through Yarooms.
 | **Book time** | Pick a date and time range → bot finds all available rooms → you choose one. |
 | **Book room** | Pick a specific room and date → see its schedule → tap a slot to book. |
 | **Hot Booking** | One-tap booking of the nearest available room for the next 30 minutes. |
+| **Cancel from DM** | Confirmation DM includes a cancel button (when booking ID is available) that cancels the Yarooms booking. |
 
 ### Business rules
 
 - **Max 3 hours per booking.** Enforced with inline modal errors and slot filtering.
 - **Max 3 hours per user per day.** Tracked locally via Redis (primary) with in-memory fallback. Counter is incremented only after a successful Yarooms API booking. When the limit is reached, a "Daily Limit Reached" modal shows used/remaining minutes.
+- **Quota rollback on cancel.** After successful cancellation, the same number of minutes is returned to the user's daily quota.
 - **No past bookings.** Slots whose start time has already passed are rejected or filtered out automatically.
 - Only **Skype rooms** and **Silent Boxes** are shown (other Yarooms space types are ignored).
 
@@ -29,6 +31,7 @@ handlers/
   home_book_time.py              Book by Time action/view handlers
   home_book_room.py              Book by Room schedule + slot booking handlers
   home_hot_booking.py            Hot Booking action handler
+  home_cancel_booking.py         DM cancellation button handler
   home_common.py                 Common module — re-exports shared helpers
 clients/
   yarooms_client.py              Async Yarooms API client (aiohttp)
@@ -36,7 +39,7 @@ utils/
   booking_utils.py               Time/duration helpers, slot normalisation, constants
   daily_quota.py                 Per-user daily booking quota tracker (Redis + memory)
   slack_views.py                 Shared Slack view builders (skeleton, modal, quota)
-  slack_notifications.py         Booking-confirmation DM helper
+  slack_notifications.py         Booking-confirmation DM helper (+ cancel button)
   config_env.py                  .env loader and required-variable validator
 AGENTS.md                        Coding guidelines for AI-assisted development
 ```
@@ -155,6 +158,7 @@ Booking confirmation DM (notify_booking_in_chat)
 - **Book by Time** checks all cached rooms in parallel (bounded by `MAX_PARALLEL_AVAILABILITY_CHECKS = 8`) and presents a "Choose a Room" picker. A live re-check runs before the final `create_booking`.
 - **Book by Room** builds day schedule from `/api/bookings` (`space_id` + `date`) and falls back to `/api/spaces/availability` probing on failure. Selected date is passed to booking step via `private_metadata`.
 - **create_booking** dual strategy: (1) resolve email → Yarooms `account_id` via `/api/accounts` → on-behalf-of booking; (2) on failure, fall back to bot-account booking with `description="Booked via Slack by <email>"`.
+- Confirmation DMs include a **Cancel booking** button when Yarooms returns a booking id. Cancellation uses `DELETE /api/bookings/:ID`.
 - In email/password mode, `YaroomsClient` auto-refreshes expired tokens on HTTP 401 and retries once.
 
 ---

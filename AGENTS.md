@@ -7,12 +7,13 @@
 - **`handlers/home_book_time.py`** — Book by Time action/view handlers.
 - **`handlers/home_book_room.py`** — Book by Room schedule + specific slot booking handlers.
 - **`handlers/home_hot_booking.py`** — Hot Booking action handler.
+- **`handlers/home_cancel_booking.py`** — DM cancellation button action handler (`action_cancel_booking`).
 - **`handlers/home_common.py`** — common module imported by feature handlers; re-exports shared booking/slack helpers and provides `get_user_email`, `safe_get_room_name`.
 - **`utils/booking_utils.py`** — booking/time helpers and constants: `MAX_BOOKING_HOURS`, `MAX_BOOKING_MINUTES`, `_duration_minutes`, `_available_time_options`, `_normalized_available_slots`, `_covers_interval`.
 - **`utils/slack_views.py`** — shared Slack view builders (`skeleton_view`, `simple_modal`, `error_modal_with_context`, `quota_exceeded_modal`).
-- **`utils/slack_notifications.py`** — shared chat notification helper (`notify_booking_in_chat`).
-- **`utils/daily_quota.py`** — per-user daily booking quota tracker (`DailyQuotaTracker`). Uses Redis (primary) with in-memory fallback. Counter is incremented **only after** `create_booking` succeeds.
-- **`clients/yarooms_client.py`** — async Yarooms API client (`YaroomsClient`). Methods: `get_spaces`, `get_space_availability`, `find_available_space`, `create_booking`. Endpoint paths/response shapes are documented in the file and must be verified against https://api-docs.yarooms.com/#introduction.
+- **`utils/slack_notifications.py`** — shared chat notification helper (`notify_booking_in_chat`), now includes DM cancellation button when `booking_id` is known.
+- **`utils/daily_quota.py`** — per-user daily booking quota tracker (`DailyQuotaTracker`). Uses Redis (primary) with in-memory fallback. Counter is incremented **only after** `create_booking` succeeds and decremented after successful cancellation (`record_cancellation`).
+- **`clients/yarooms_client.py`** — async Yarooms API client (`YaroomsClient`). Methods include `get_spaces`, `get_space_availability`, `find_available_space`, `create_booking`, `delete_booking`, `extract_booking_id`. Endpoint paths/response shapes are documented in the file and must be verified against https://api-docs.yarooms.com/#introduction.
 - **`utils/config_env.py`** — environment loader/validator for required Slack/Yarooms keys.
 
 ## Required environment keys
@@ -89,6 +90,8 @@ Both `YAROOMS_EMAIL` **and** `YAROOMS_PASSWORD` must be present when no API key 
 - `handle_book_room_time_submission` (callback `modal_book_room_time_submit`) validates start < end, duration ≤ max, not past, quota — all as inline errors before `ack()` skeleton. Then re-checks live availability and creates the booking.
 - `handle_book_specific_slot` is kept registered as a legacy fallback for any stale slot-button modals.
 - Successful bookings send a DM via `notify_booking_in_chat(...)` with room/date/time details.
+- Successful booking DMs include a **Cancel booking** button when `create_booking` returns a booking id.
+- `action_cancel_booking` cancels via `DELETE /api/bookings/:ID`, sends a DM result, and rolls back daily quota minutes.
 - All booking handlers resolve the Slack user's email via `get_user_email(client, user_id)` before calling `create_booking`. This requires `users:read` + `users:read.email` Slack OAuth scopes.
 - `create_booking` dual strategy: (1) resolve email → Yarooms `account_id` via `/api/accounts` and try on-behalf-of booking; (2) on failure, fall back to bot-account booking. Both strategies include `description="Booked via Slack by <email>"` so the booker is visible in Yarooms web UI.
 - **Note:** Yarooms sanitises `@` → `[at]` in description fields.

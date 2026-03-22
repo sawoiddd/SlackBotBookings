@@ -39,7 +39,7 @@ def build_home_tab_view() -> dict:
             {"type": "divider"},
             _home_action_block(
                 text="* Обирай час, а кімнату знайде бот*\n_Вкажи потрібний час, і ми підберемо найкращий варіант._",
-                button_text=" Book time",
+                button_text="⏰ Book time",
                 value="book_time",
                 action_id="action_book_time",
             ),
