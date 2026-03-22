@@ -10,6 +10,14 @@ import handlers.home_common as common
 def register_hot_booking_handlers(app, yarooms, quota):
     """Register Hot Booking action handler."""
 
+    def _round_up_to_10_minute_boundary(dt: datetime) -> datetime:
+        """Round datetime up to the next 10-minute boundary (seconds zeroed)."""
+        base = dt.replace(second=0, microsecond=0)
+        rem = base.minute % 10
+        if rem == 0:
+            return base
+        return base + timedelta(minutes=(10 - rem))
+
     @app.action("action_hot_booking")
     async def handle_hot_booking(ack, body, client, logger):
         """Try to instantly book any room available for the next 30 minutes."""
@@ -22,10 +30,25 @@ def register_hot_booking_handlers(app, yarooms, quota):
             new_view_id = response["view"]["id"]
             user_id = body["user"]["id"]
 
-            now = datetime.now()
-            today = now.strftime("%Y-%m-%d")
-            start_time = now.strftime("%H:%M")
-            end_time = (now + timedelta(minutes=30)).strftime("%H:%M")
+            # Yarooms booking strategies commonly require fixed minute steps.
+            # Align Hot Booking start/end to 10-minute boundaries to avoid 400s.
+            start_dt = _round_up_to_10_minute_boundary(datetime.now())
+            end_dt = start_dt + timedelta(minutes=30)
+
+            # Cross-midnight is unsupported by create_booking(date + HH:MM pair).
+            if end_dt.date() != start_dt.date():
+                await client.views_update(
+                    view_id=new_view_id,
+                    view=common.simple_modal(
+                        "Hot Booking",
+                        "⚠️ Hot booking is unavailable near midnight. Please use Book by Time.",
+                    ),
+                )
+                return
+
+            today = start_dt.strftime("%Y-%m-%d")
+            start_time = start_dt.strftime("%H:%M")
+            end_time = end_dt.strftime("%H:%M")
 
             user_email = await common.get_user_email(client, user_id)
             logger.debug(f"Hot Booking resolved email for {user_id}: '{user_email}'")
@@ -101,7 +124,10 @@ def register_hot_booking_handlers(app, yarooms, quota):
                 user_email=user_email,
             )
         except Exception as e:
-            logger.error(f"Error processing hot booking: {e}")
+            logger.error(
+                f"Error processing hot booking: user={body.get('user', {}).get('id', 'unknown')}, "
+                f"err={type(e).__name__}: {e}"
+            )
             await client.chat_postMessage(
                 channel=body["user"]["id"],
                 text="Sorry, we couldn't complete the hot booking right now.",

@@ -1098,9 +1098,17 @@ class YaroomsClient:
         spaces = await self.get_spaces()
         for space in spaces:
             try:
-                slots = await self.get_space_availability(space["id"], date)
+                slots = await self.get_space_availability(
+                    space["id"],
+                    date,
+                    start_time,
+                    end_time,
+                )
             except Exception:
                 continue
+
+            # Interval-aware responses may be either explicit slot lists or
+            # status snapshots normalized by get_space_availability().
             for slot in slots:
                 s = slot.get("startTime") or slot.get("start", "")
                 e = slot.get("endTime") or slot.get("end", "")
