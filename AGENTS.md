@@ -84,15 +84,17 @@ Both `YAROOMS_EMAIL` **and** `YAROOMS_PASSWORD` must be present when no API key 
 - `_available_time_options(start_hour=8, end_hour=22, minute_step=10)` supports configurable ranges; defaults provide **10-minute increments** from `08:00` through `21:50`, which keeps each Slack `static_select` under the 100-option limit.
 - Keep `_available_time_options()` under Slack `static_select` limit (max 100 options per field).
 - Slot button value format: `"{room_id}_{start}_{end}"` — parsed with **`rsplit("_", 2)`** (not `split`) so room IDs containing underscores are handled safely.
-- Booking date is passed from `handle_book_room_submission` → `handle_book_specific_slot` via `private_metadata` on the schedule modal view.
-- `handle_book_specific_slot` re-fetches room availability before `create_booking` and rejects stale slots with a "Slot Unavailable" modal.
+- Booking date is passed from `handle_book_room_submission` → `handle_book_room_time_submission` via `private_metadata` (format: `room_id|date`).
+- `Book by Room` schedule view shows free intervals as text and provides two `static_select` time pickers whose options are restricted to times **inside** free windows only (`_schedule_time_options`). Booked periods are physically absent from the pickers.
+- `handle_book_room_time_submission` (callback `modal_book_room_time_submit`) validates start < end, duration ≤ max, not past, quota — all as inline errors before `ack()` skeleton. Then re-checks live availability and creates the booking.
+- `handle_book_specific_slot` is kept registered as a legacy fallback for any stale slot-button modals.
 - Successful bookings send a DM via `notify_booking_in_chat(...)` with room/date/time details.
 - All booking handlers resolve the Slack user's email via `get_user_email(client, user_id)` before calling `create_booking`. This requires `users:read` + `users:read.email` Slack OAuth scopes.
 - `create_booking` dual strategy: (1) resolve email → Yarooms `account_id` via `/api/accounts` and try on-behalf-of booking; (2) on failure, fall back to bot-account booking. Both strategies include `description="Booked via Slack by <email>"` so the booker is visible in Yarooms web UI.
 - **Note:** Yarooms sanitises `@` → `[at]` in description fields.
 - `/api/accounts` results are cached in-memory for 10 min (`_ACCOUNTS_CACHE_TTL`).
 - The on-behalf-of `account_id` booking requires the bot's Yarooms account to have "book for others" permission in the Yarooms group settings. If the permission is missing, Strategy 2 (bot-account + description) is used silently.
-- Yarooms API requests use `X-Token: <token>` and `/api/*` endpoints; availability is queried via `/api/spaces/availability`.
+- Yarooms API requests use `X-Token: <token>` and `/api/*` endpoints; Book by Room day schedule uses `/api/bookings` (`space_id` + `date`) as primary source and falls back to `/api/spaces/availability` probing on failure.
 - In email/password mode, `YaroomsClient` automatically re-authenticates on HTTP 401 and retries once, so long-running bot sessions can recover expired tokens.
 
 ## Important codebase quirks

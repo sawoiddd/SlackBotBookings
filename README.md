@@ -153,7 +153,7 @@ Booking confirmation DM (notify_booking_in_chat)
 
 - **Spaces cache** is warmed at startup via `get_spaces_cached(force_refresh=True)`. Backend: Redis (primary) with automatic in-memory fallback.
 - **Book by Time** checks all cached rooms in parallel (bounded by `MAX_PARALLEL_AVAILABILITY_CHECKS = 8`) and presents a "Choose a Room" picker. A live re-check runs before the final `create_booking`.
-- **Book by Room** passes the selected date to the slot-booking step via `private_metadata`. Slot button values use `"{room_id}_{start}_{end}"` format, parsed with `rsplit("_", 2)` so room IDs with underscores are safe.
+- **Book by Room** builds day schedule from `/api/bookings` (`space_id` + `date`) and falls back to `/api/spaces/availability` probing on failure. Selected date is passed to booking step via `private_metadata`.
 - **create_booking** dual strategy: (1) resolve email → Yarooms `account_id` via `/api/accounts` → on-behalf-of booking; (2) on failure, fall back to bot-account booking with `description="Booked via Slack by <email>"`.
 - In email/password mode, `YaroomsClient` auto-refreshes expired tokens on HTTP 401 and retries once.
 
@@ -168,6 +168,7 @@ Implemented in `clients/yarooms_client.py`. Key methods:
 | `get_spaces()` | Fetch and filter spaces (Skype rooms + Silent Boxes only) |
 | `get_spaces_cached()` | Cached version with TTL, stale fallback, single-flight lock |
 | `get_space_availability(space_id, date, start_time?, end_time?)` | Available slots for one room on a date |
+| `get_space_day_schedule(space_id, date)` | Free windows for one room/day (bookings primary, availability fallback) |
 | `find_available_space(date, start_time, end_time)` | First room covering the requested interval |
 | `create_booking(space_id, date, start_time, end_time, user_email?, title?)` | Create booking (dual on-behalf-of / bot-account strategy) |
 | `resolve_account_id(email)` | Map email → Yarooms account ID (cached 10 min) |

@@ -14,8 +14,10 @@ from utils.booking_utils import (
     _available_time_options,
     _covers_interval,
     _duration_minutes,
+    _generate_bookable_sub_slots,
     _is_past_slot,
     _normalized_available_slots,
+    _schedule_time_options,
 )
 from utils.slack_notifications import notify_booking_in_chat
 from utils.slack_views import (
@@ -34,8 +36,10 @@ __all__ = [
     "_available_time_options",
     "_covers_interval",
     "_duration_minutes",
+    "_generate_bookable_sub_slots",
     "_is_past_slot",
     "_normalized_available_slots",
+    "_schedule_time_options",
     "error_modal_with_context",
     "notify_booking_in_chat",
     "quota_exceeded_modal",

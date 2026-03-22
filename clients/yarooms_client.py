@@ -23,6 +23,7 @@ import aiohttp
 import asyncio
 import json
 import time
+from datetime import datetime, timedelta
 from utils.booking_utils import _covers_interval, _to_hhmm, _to_minutes
 
 try:
@@ -635,6 +636,460 @@ class YaroomsClient:
         return result if isinstance(result, list) else []
 
     # ── search helpers ───────────────────────────────────────────────────────
+
+    def _extract_room_snapshot(self, result, space_id: str) -> dict | None:
+        """Extract the raw status snapshot dict from an availability API response.
+
+        Returns ``None`` when the response doesn't contain a recognisable
+        snapshot for *space_id*.
+        """
+        if not isinstance(result, dict):
+            return None
+        data = result.get("data", result.get("slots"))
+        if not isinstance(data, dict):
+            return None
+        # Variant A: direct map by space id
+        mapped = data.get(str(space_id)) or data.get(space_id)
+        if isinstance(mapped, dict) and "status" in mapped:
+            return mapped
+        # Variant B: nested by date then by space id
+        for _key, val in data.items():
+            if isinstance(val, dict):
+                room_info = val.get(str(space_id)) or val.get(space_id)
+                if isinstance(room_info, dict) and "status" in room_info:
+                    return room_info
+        return None
+
+    @staticmethod
+    def _parse_api_datetime(value: str) -> datetime | None:
+        """Parse Yarooms datetime strings used in bookings payloads."""
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+            try:
+                return datetime.strptime(raw, fmt)
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
+    def _merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]:
+        """Merge overlapping/adjacent half-open intervals [start, end)."""
+        if not intervals:
+            return []
+        intervals = sorted(intervals, key=lambda x: (x[0], x[1]))
+        merged: list[tuple[int, int]] = [intervals[0]]
+        for start, end in intervals[1:]:
+            prev_start, prev_end = merged[-1]
+            if start <= prev_end:
+                merged[-1] = (prev_start, max(prev_end, end))
+            else:
+                merged.append((start, end))
+        return merged
+
+    async def _get_room_day_busy_intervals_from_bookings(
+        self,
+        *,
+        space_id: str,
+        date: str,
+        day_start_minutes: int,
+        day_end_minutes: int,
+        per_page: int = 200,
+        max_pages: int = 50,
+    ) -> tuple[list[tuple[int, int]], int]:
+        """Fetch room-day bookings and convert them to merged busy intervals.
+
+        Returns:
+            (merged_busy_intervals, api_calls)
+        """
+        busy: list[tuple[int, int]] = []
+        page = 1
+        calls = 0
+
+        day_zero = datetime.strptime(date, "%Y-%m-%d")
+        day_end = day_zero + timedelta(days=1)
+
+        while page <= max_pages:
+            calls += 1
+            payload = await self._request(
+                "GET",
+                "/api/bookings",
+                params={
+                    "space_id": str(space_id),
+                    "date": date,
+                    "page": str(page),
+                    "perPage": str(per_page),
+                    "include_space": "0",
+                    "include_user": "0",
+                    "include_location": "0",
+                },
+            )
+
+            if not isinstance(payload, dict):
+                raise RuntimeError("Unexpected /api/bookings response shape (non-object).")
+
+            data = payload.get("data")
+            if isinstance(data, dict):
+                rows = data.get("list") or data.get("items") or []
+                total_pages = data.get("totalPages") or data.get("total_pages")
+            elif isinstance(data, list):
+                rows = data
+                total_pages = None
+            else:
+                raise RuntimeError("Unexpected /api/bookings data payload shape.")
+
+            if not isinstance(rows, list):
+                raise RuntimeError("Unexpected /api/bookings data.list shape (non-array).")
+
+            for booking in rows:
+                if not isinstance(booking, dict):
+                    continue
+
+                if str(booking.get("space_id", "")) != str(space_id):
+                    continue
+
+                cancelled = booking.get("cancelled")
+                if cancelled in (1, "1", True):
+                    continue
+
+                status = booking.get("status")
+                if status in (0, "0", False):
+                    continue
+
+                date_rows = booking.get("dates")
+                if not isinstance(date_rows, list):
+                    continue
+
+                for block in date_rows:
+                    if not isinstance(block, dict):
+                        continue
+                    start_dt = self._parse_api_datetime(str(block.get("start") or ""))
+                    end_dt = self._parse_api_datetime(str(block.get("end") or ""))
+                    if start_dt is None or end_dt is None or end_dt <= start_dt:
+                        continue
+
+                    # Intersect booking with selected calendar day.
+                    if end_dt <= day_zero or start_dt >= day_end:
+                        continue
+                    clipped_start = max(start_dt, day_zero)
+                    clipped_end = min(end_dt, day_end)
+
+                    start_min = int((clipped_start - day_zero).total_seconds() // 60)
+                    end_min = int((clipped_end - day_zero).total_seconds() // 60)
+
+                    # Clip to working window (08:00..22:00 by default).
+                    start_min = max(start_min, day_start_minutes)
+                    end_min = min(end_min, day_end_minutes)
+                    if end_min > start_min:
+                        busy.append((start_min, end_min))
+
+            # Pagination handling (supports metadata + empty-list termination).
+            try:
+                total_pages_int = int(total_pages) if total_pages is not None else None
+            except (TypeError, ValueError):
+                total_pages_int = None
+
+            if total_pages_int is not None:
+                if page >= max(1, total_pages_int):
+                    break
+            else:
+                if not rows or len(rows) < per_page:
+                    break
+
+            page += 1
+
+        return self._merge_intervals(busy), calls
+
+    @staticmethod
+    def _free_windows_from_busy(
+        busy: list[tuple[int, int]],
+        *,
+        day_start_minutes: int,
+        day_end_minutes: int,
+        min_free_minutes: int = 10,
+    ) -> list[dict]:
+        """Compute free windows as complement of busy intervals in working day."""
+        free: list[dict] = []
+        cursor = day_start_minutes
+        for b_start, b_end in busy:
+            if b_start > cursor and (b_start - cursor) >= min_free_minutes:
+                free.append({"start": _to_hhmm(cursor), "end": _to_hhmm(b_start)})
+            cursor = max(cursor, b_end)
+        if day_end_minutes > cursor and (day_end_minutes - cursor) >= min_free_minutes:
+            free.append({"start": _to_hhmm(cursor), "end": _to_hhmm(day_end_minutes)})
+        return free
+
+    async def get_space_day_schedule(
+        self,
+        space_id: str,
+        date: str,
+        day_start: str = "08:00",
+        day_end: str = "22:00",
+    ) -> list[dict]:
+        """Return free windows for one room/day.
+
+        Primary source: ``GET /api/bookings`` with ``space_id`` + ``date``.
+        Fallback source: availability-based adaptive probing when bookings
+        endpoint fails or returns malformed data.
+        """
+        import logging
+        _log = logging.getLogger(__name__)
+
+        day_start_minutes = _to_minutes(day_start) or 480
+        day_end_minutes = _to_minutes(day_end) or 1320
+
+        try:
+            busy, calls = await self._get_room_day_busy_intervals_from_bookings(
+                space_id=str(space_id),
+                date=date,
+                day_start_minutes=day_start_minutes,
+                day_end_minutes=day_end_minutes,
+            )
+            free = self._free_windows_from_busy(
+                busy,
+                day_start_minutes=day_start_minutes,
+                day_end_minutes=day_end_minutes,
+            )
+            _log.info(
+                f"[day_schedule] room={space_id}, date={date}: "
+                f"{len(free)} free windows, source=bookings, api_calls={calls}"
+            )
+            return free
+        except Exception as exc:
+            _log.warning(
+                f"[day_schedule] room={space_id}, date={date}: "
+                f"bookings source failed ({type(exc).__name__}: {exc}); "
+                f"source=availability_fallback"
+            )
+            return await self._get_space_day_schedule_from_availability(
+                space_id=space_id,
+                date=date,
+                day_start=day_start,
+                day_end=day_end,
+            )
+
+    async def _get_space_day_schedule_from_availability(
+        self,
+        space_id: str,
+        date: str,
+        day_start: str = "08:00",
+        day_end: str = "22:00",
+    ) -> list[dict]:
+        """Return all free windows for a room/day using adaptive probing.
+
+        Strategy (hierarchical refinement):
+          1) Probe 2-hour chunks.
+          2) If a 2-hour chunk is mixed, split into 1-hour chunks.
+          3) If a 1-hour chunk is mixed, split into 30-minute chunks.
+          4) If a 30-minute chunk is mixed, scan in 10-minute chunks.
+
+        This keeps the same output contract for Book-by-Room UI while
+        reducing calls on mostly-free days and preserving fine-grained
+        detection of short free/busy fragments.
+        """
+        import logging
+        _log = logging.getLogger(__name__)
+
+        probe_levels = (120, 60, 30, 10)
+        free_windows: list[dict] = []
+        end_minutes = _to_minutes(day_end) or 1320
+        cursor_minutes = _to_minutes(day_start) or 480
+        calls = 0
+
+        async def _interval_is_free(start_m: int, end_m: int) -> bool:
+            """Return True when [start_m, end_m] is fully free."""
+            nonlocal calls
+            if end_m <= start_m:
+                return False
+
+            start_hhmm = _to_hhmm(start_m)
+            end_hhmm = _to_hhmm(end_m)
+            calls += 1
+
+            try:
+                raw = await self._request(
+                    "GET",
+                    "/api/spaces/availability",
+                    params={
+                        "spaces": str(space_id),
+                        "date": date,
+                        "start": start_hhmm,
+                        "end": end_hhmm,
+                    },
+                )
+            except Exception as exc:
+                _log.warning(
+                    f"[day_schedule] room={space_id}: probe failed {start_hhmm}-{end_hhmm}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                return False
+
+            snapshot = self._extract_room_snapshot(raw, str(space_id))
+            if isinstance(snapshot, dict) and "status" in snapshot:
+                status = snapshot.get("status")
+                if status in (1, "1", True):
+                    return False
+
+                if status in (0, "0", False):
+                    # If Yarooms returns a stale next_change boundary (<= start)
+                    # for a long interval, don't trust it as fully free. Force
+                    # refinement to avoid missing busy chunks later in interval.
+                    next_change = snapshot.get("next_change") or {}
+                    raw_change = str(next_change.get("change") or "") if isinstance(next_change, dict) else ""
+                    change_same_day = bool(raw_change and len(raw_change) >= 10 and raw_change[:10] == date)
+                    change_hhmm = self._to_hhmm_safe(raw_change)
+                    change_m = _to_minutes(change_hhmm) if (change_same_day and change_hhmm) else None
+
+                    interval_minutes = end_m - start_m
+                    if change_m is not None and change_m <= start_m and interval_minutes > probe_levels[-1]:
+                        return False
+
+                    # If the next change falls *inside* the requested interval,
+                    # the room cannot be considered free for the entire range.
+                    # Apply this only to coarse probes; for 10-minute leaf probes
+                    # we defer to canonical snapshot parsing to avoid hiding
+                    # valid post-boundary chunks.
+                    if (
+                        change_m is not None
+                        and change_m < end_m
+                        and interval_minutes > probe_levels[-1]
+                    ):
+                        return False
+
+                    # Missing boundary on coarse checks is ambiguous on some
+                    # tenants; refine before marking as fully free.
+                    if change_m is None and interval_minutes > probe_levels[-1]:
+                        return False
+
+                    # Also respect explicit booked interval overlap when present.
+                    bi = next_change.get("booked_interval") if isinstance(next_change, dict) else None
+                    if isinstance(bi, dict):
+                        bi_start = self._to_hhmm_safe(str(bi.get("start") or ""))
+                        bi_end = self._to_hhmm_safe(str(bi.get("end") or ""))
+                        bi_start_m = _to_minutes(bi_start) if bi_start else None
+                        bi_end_m = _to_minutes(bi_end, round_up_seconds=True) if bi_end else None
+                        if (
+                            bi_start_m is not None
+                            and bi_end_m is not None
+                            and bi_start_m < end_m
+                            and bi_end_m > start_m
+                        ):
+                            return False
+
+                # For status=0/2 and tenant-specific snapshot variants,
+                # defer to the canonical snapshot parser and require full
+                # interval coverage.
+                parsed_slots = self._availability_from_status_snapshot(
+                    snapshot,
+                    requested_start=start_hhmm,
+                    requested_end=end_hhmm,
+                    requested_date=date,
+                )
+                return any(
+                    _covers_interval(
+                        (
+                            str(slot.get("startTime") or slot.get("start") or ""),
+                            str(slot.get("endTime") or slot.get("end") or ""),
+                        ),
+                        start_hhmm,
+                        end_hhmm,
+                    )
+                    for slot in parsed_slots
+                )
+
+            # Fallback for explicit slot-array payloads / unknown shapes.
+            try:
+                slots = await self.get_space_availability(
+                    str(space_id),
+                    date,
+                    start_hhmm,
+                    end_hhmm,
+                )
+            except Exception:
+                return False
+
+            return any(
+                _covers_interval(
+                    (
+                        str(slot.get("startTime") or slot.get("start") or ""),
+                        str(slot.get("endTime") or slot.get("end") or ""),
+                    ),
+                    start_hhmm,
+                    end_hhmm,
+                )
+                for slot in slots
+            )
+
+        async def _collect_free(start_m: int, end_m: int, level_idx: int) -> list[dict]:
+            """Collect free windows for [start_m, end_m) at a probe level."""
+            if end_m <= start_m:
+                return []
+
+            step = probe_levels[level_idx]
+
+            # Leaf: always resolve with 10-minute slices so short free chunks
+            # are never skipped.
+            if level_idx == len(probe_levels) - 1:
+                out: list[dict] = []
+                open_start: int | None = None
+                cur = start_m
+                while cur < end_m:
+                    seg_end = min(cur + step, end_m)
+                    seg_free = await _interval_is_free(cur, seg_end)
+                    if seg_free:
+                        if open_start is None:
+                            open_start = cur
+                    else:
+                        if open_start is not None and cur > open_start:
+                            out.append({"start": _to_hhmm(open_start), "end": _to_hhmm(cur)})
+                        open_start = None
+                    cur = seg_end
+
+                if open_start is not None and end_m > open_start:
+                    out.append({"start": _to_hhmm(open_start), "end": _to_hhmm(end_m)})
+                return out
+
+            # Coarse level: if fully free, keep whole chunk; otherwise split.
+            whole_free = await _interval_is_free(start_m, end_m)
+            if whole_free:
+                return [{"start": _to_hhmm(start_m), "end": _to_hhmm(end_m)}]
+
+            next_windows: list[dict] = []
+            child_step = probe_levels[level_idx + 1]
+            cur = start_m
+            while cur < end_m:
+                child_end = min(cur + child_step, end_m)
+                next_windows.extend(await _collect_free(cur, child_end, level_idx + 1))
+                cur = child_end
+            return next_windows
+
+        # Partition day into top-level 2-hour chunks and resolve each.
+        top_step = probe_levels[0]
+        while cursor_minutes < end_minutes:
+            chunk_end = min(cursor_minutes + top_step, end_minutes)
+            free_windows.extend(await _collect_free(cursor_minutes, chunk_end, 0))
+            cursor_minutes = chunk_end
+
+        # Merge adjacent / overlapping free windows that the iterative walk
+        # may have fragmented (e.g. [12:00-12:10, 12:10-22:00] → [12:00-22:00]).
+        if len(free_windows) > 1:
+            merged: list[dict] = [dict(free_windows[0])]
+            for w in free_windows[1:]:
+                prev_end = _to_minutes(merged[-1]["end"]) or 0
+                curr_start = _to_minutes(w["start"]) or 0
+                curr_end = _to_minutes(w["end"]) or 0
+                if curr_start <= prev_end:
+                    merged[-1]["end"] = _to_hhmm(max(prev_end, curr_end))
+                else:
+                    merged.append(dict(w))
+            free_windows = merged
+
+        _log.info(
+            f"[day_schedule] room={space_id}, date={date}: "
+            f"{len(free_windows)} free windows, {calls} API calls"
+        )
+        return free_windows
 
     async def find_available_space(
         self, date: str, start_time: str, end_time: str
