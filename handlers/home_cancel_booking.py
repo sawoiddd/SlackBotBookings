@@ -26,21 +26,21 @@ def register_cancel_booking_handlers(app, yarooms, quota):
         booking_date = str(payload.get("booking_date") or "").strip()
         start_time = str(payload.get("start_time") or "").strip()
         end_time = str(payload.get("end_time") or "").strip()
-        room_name = str(payload.get("room_name") or "Room").strip()
+        room_name = str(payload.get("room_name") or "Кімната").strip()
         user_email = str(payload.get("user_email") or "").strip()
         payload_user_id = str(payload.get("user_id") or "").strip()
 
         if payload_user_id and payload_user_id != user_id:
             await client.chat_postMessage(
                 channel=user_id,
-                text="❌ You can only cancel your own booking.",
+                text="❌ Ви можете скасувати лише власне бронювання.",
             )
             return
 
         if not booking_id:
             await client.chat_postMessage(
                 channel=user_id,
-                text="❌ Booking ID is missing. Cannot cancel this booking.",
+                text="❌ Відсутній ID бронювання. Неможливо скасувати.",
             )
             return
 
@@ -57,8 +57,8 @@ def register_cancel_booking_handlers(app, yarooms, quota):
             await client.chat_postMessage(
                 channel=user_id,
                 text=(
-                    "❌ Could not cancel this booking right now. "
-                    "It may already be cancelled or unavailable."
+                    "❌ Не вдалося скасувати бронювання зараз. "
+                    "Можливо, воно вже скасоване або недоступне."
                 ),
             )
             return
@@ -77,7 +77,7 @@ def register_cancel_booking_handlers(app, yarooms, quota):
         await client.chat_postMessage(
             channel=user_id,
             text=(
-                f"🗑️ Booking cancelled: {room_name} on {booking_date} "
+                f"🗑️ Бронювання скасовано: {room_name} на {booking_date} "
                 f"{start_time}-{end_time}."
             ),
         )
@@ -90,16 +90,16 @@ def register_cancel_booking_handlers(app, yarooms, quota):
                 await client.chat_update(
                     channel=channel_id,
                     ts=message_ts,
-                    text="Booking cancelled.",
+                    text="Бронювання скасовано.",
                     blocks=[
                         {
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
                                 "text": (
-                                    f"🗑️ *Cancelled:* {room_name}\n"
-                                    f"Date: {booking_date}\n"
-                                    f"Time: {start_time}-{end_time}"
+                                    f"🗑️ *Скасовано:* {room_name}\n"
+                                    f"Дата: {booking_date}\n"
+                                    f"Час: {start_time}-{end_time}"
                                 ),
                             },
                         }

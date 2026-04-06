@@ -5,7 +5,7 @@ def skeleton_view(word: str) -> dict:
     """Loading placeholder for modal updates. Type is 'modal' so Slack renders it correctly."""
     return {
         "type": "modal",
-        "title": {"type": "plain_text", "text": "Please wait", "emoji": False},
+        "title": {"type": "plain_text", "text": "Зачекайте", "emoji": False},
         "blocks": [
             {
                 "type": "section",
@@ -20,7 +20,7 @@ def simple_modal(title: str, message: str) -> dict:
     return {
         "type": "modal",
         "title": {"type": "plain_text", "text": title[:24], "emoji": False},
-        "close": {"type": "plain_text", "text": "Close", "emoji": False},
+        "close": {"type": "plain_text", "text": "Закрити", "emoji": False},
         "blocks": [
             {
                 "type": "section",
@@ -50,7 +50,7 @@ def error_modal_with_context(title: str, message: str, context_lines: list[str] 
     return {
         "type": "modal",
         "title": {"type": "plain_text", "text": title[:24], "emoji": False},
-        "close": {"type": "plain_text", "text": "Close", "emoji": False},
+        "close": {"type": "plain_text", "text": "Закрити", "emoji": False},
         "blocks": blocks,
     }
 
@@ -58,11 +58,11 @@ def error_modal_with_context(title: str, message: str, context_lines: list[str] 
 def quota_exceeded_modal(used: int, remaining: int, requested: int, max_daily: int) -> dict:
     """Modal shown when a booking would exceed the daily quota."""
     return simple_modal(
-        "Daily Limit Reached",
+        "Досягнуто денний ліміт",
         (
-            f"⏳ You've used *{used}* of your *{max_daily}* daily minutes.\n"
-            f"Remaining: *{remaining}* min — but this booking needs *{requested}* min.\n\n"
-            f"Please choose a shorter slot or try again tomorrow."
+            f"⏳ Ви вже використали *{used}* із *{max_daily}* хвилин на сьогодні.\n"
+            f"Залишилось: *{remaining}* хв, а це бронювання потребує *{requested}* хв.\n\n"
+            f"Оберіть коротший інтервал або спробуйте завтра."
         ),
     )
 

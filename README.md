@@ -134,6 +134,30 @@ On shutdown (Ctrl-C / SIGINT), the Yarooms HTTP session is closed cleanly via `Y
 
 ---
 
+## Run with Docker
+
+The project ships with a `Dockerfile` and `docker-compose.yml` that bundle the bot and a Redis cache.
+
+```bash
+# 1. Create your .env file (if not done yet)
+cp .env.example .env          # then fill in your credentials
+
+# 2. Build and start both services (bot + Redis)
+docker compose up -d --build
+
+# 3. Follow bot logs
+docker compose logs -f bot
+
+# 4. Stop everything
+docker compose down
+```
+
+> **Note:** `docker-compose.yml` automatically sets `REDIS_URL=redis://redis:6379/0` for the bot container, so you don't need that variable in your `.env`.
+>
+> If you don't need Redis, remove the `redis` service and the `depends_on` / `environment` block from `docker-compose.yml` — the bot will fall back to its in-memory cache.
+
+---
+
 ## Runtime flow
 
 ```

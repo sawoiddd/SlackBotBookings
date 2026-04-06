@@ -1091,6 +1091,63 @@ class YaroomsClient:
         )
         return free_windows
 
+    async def is_interval_free(
+        self,
+        space_id: str,
+        date: str,
+        start_time: str,
+        end_time: str,
+        day_start: str = "08:00",
+        day_end: str = "22:00",
+    ) -> bool:
+        """Check whether *space_id* is completely free during [start_time, end_time].
+
+        Uses the reliable ``/api/bookings`` endpoint (same as Book by Room)
+        rather than the snapshot-based ``/api/spaces/availability`` which only
+        reports the *first* upcoming state change and can miss subsequent
+        bookings within the queried window.
+        """
+        import logging
+        _log = logging.getLogger(__name__)
+
+        day_start_minutes = _to_minutes(day_start) or 480
+        day_end_minutes = _to_minutes(day_end) or 1320
+        req_start = _to_minutes(start_time)
+        req_end = _to_minutes(end_time, round_up_seconds=True)
+        if req_start is None or req_end is None or req_end <= req_start:
+            return False
+
+        try:
+            busy, _calls = await self._get_room_day_busy_intervals_from_bookings(
+                space_id=str(space_id),
+                date=date,
+                day_start_minutes=day_start_minutes,
+                day_end_minutes=day_end_minutes,
+            )
+        except Exception as exc:
+            _log.warning(
+                f"[is_interval_free] room={space_id}, date={date}: "
+                f"bookings fetch failed ({type(exc).__name__}: {exc}); "
+                f"treating as unavailable"
+            )
+            return False
+
+        # The interval is free when no busy block overlaps [req_start, req_end).
+        for b_start, b_end in busy:
+            if b_start < req_end and b_end > req_start:
+                _log.debug(
+                    f"[is_interval_free] REJECTED room={space_id}: "
+                    f"busy {_to_hhmm(b_start)}-{_to_hhmm(b_end)} overlaps "
+                    f"requested {start_time}-{end_time}"
+                )
+                return False
+
+        _log.debug(
+            f"[is_interval_free] ACCEPTED room={space_id}: "
+            f"no busy overlap for {start_time}-{end_time} (busy_count={len(busy)})"
+        )
+        return True
+
     async def find_available_space(
         self, date: str, start_time: str, end_time: str
     ) -> dict | None:

@@ -20,10 +20,16 @@ async def _check_room_availability(
     semaphore: asyncio.Semaphore,
     logger,
 ) -> tuple[str, str] | None:
-    """Check a single room against requested interval.
+    """Check a single room against requested interval using bookings data.
+
+    Uses ``yarooms.is_interval_free`` which fetches **all** bookings for the
+    day via ``/api/bookings`` and checks for real overlaps.  This replaces the
+    old snapshot-based ``/api/spaces/availability`` check that could only see
+    the *first* upcoming state change and missed subsequent bookings inside the
+    requested window.
 
     Returns:
-      - (room_id, room_name) if interval is covered
+      - (room_id, room_name) if interval is fully free
       - None when unavailable or malformed
     """
     room_id = str(space.get("id") or space.get("spaceId") or "")
@@ -33,21 +39,19 @@ async def _check_room_availability(
 
     try:
         async with semaphore:
-            slots = await yarooms.get_space_availability(
+            is_free = await yarooms.is_interval_free(
                 room_id,
                 selected_date,
                 start_time,
                 end_time,
             )
-        normalized = common._normalized_available_slots(slots, apply_duration_cap=False)
-        covered = any(common._covers_interval(slot, start_time, end_time) for slot in normalized)
 
         logger.debug(
             f"Book by Time availability: room={room_name} ({room_id}), "
-            f"date={selected_date}, raw={len(slots)}, normalized={len(normalized)}, "
-            f"covered={covered}"
+            f"date={selected_date}, requested={start_time}-{end_time}, "
+            f"free={is_free}"
         )
-        return (room_id, room_name) if covered else None
+        return (room_id, room_name) if is_free else None
     except Exception as exc:
         logger.warning(
             f"Book by Time availability check failed: room={room_name} ({room_id}), "
@@ -101,7 +105,7 @@ def _choose_room_view(
                 "text": {"type": "mrkdwn", "text": f"*{room_name}*"},
                 "accessory": {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "Book this room", "emoji": False},
+                    "text": {"type": "plain_text", "text": "Забронювати", "emoji": False},
                     "style": "primary",
                     "value": f"{room_id}|{selected_date}|{start_time}|{end_time}",
                     "action_id": "action_book_time_specific_room",
@@ -111,16 +115,16 @@ def _choose_room_view(
 
     return {
         "type": "modal",
-        "title": {"type": "plain_text", "text": "Choose a Room", "emoji": False},
-        "close": {"type": "plain_text", "text": "Close", "emoji": False},
+        "title": {"type": "plain_text", "text": "Оберіть кімнату", "emoji": False},
+        "close": {"type": "plain_text", "text": "Закрити", "emoji": False},
         "blocks": [
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        f"Available on *{selected_date}* from *{start_time}* to *{end_time}*\n"
-                        f"Found {len(available_rooms)} room(s)"
+                        f"Доступно на *{selected_date}* з *{start_time}* до *{end_time}*\n"
+                        f"Знайдено кімнат: *{len(available_rooms)}*"
                     ),
                 },
             },
@@ -143,16 +147,16 @@ def register_book_time_handlers(app, yarooms, quota):
                 view={
                     "type": "modal",
                     "callback_id": "modal_book_time_submit",
-                    "title": {"type": "plain_text", "text": "Book by Time"},
-                    "submit": {"type": "plain_text", "text": "Find Room"},
-                    "close": {"type": "plain_text", "text": "Cancel"},
+                    "title": {"type": "plain_text", "text": "Бронювання за часом"},
+                    "submit": {"type": "plain_text", "text": "Знайти кімнату"},
+                    "close": {"type": "plain_text", "text": "Скасувати"},
                     "clear_on_close": True,
                     "blocks": [
                         {
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": "Select the date and time you need a workspace. The system will automatically find an available room for you.",
+                                "text": "Оберіть дату та інтервал часу. Система автоматично знайде вільну кімнату.",
                             },
                         },
                         {"type": "divider"},
@@ -161,32 +165,32 @@ def register_book_time_handlers(app, yarooms, quota):
                             "block_id": "block_date",
                             "element": {
                                 "type": "datepicker",
-                                "placeholder": {"type": "plain_text", "text": "Select a date"},
+                                "placeholder": {"type": "plain_text", "text": "Оберіть дату"},
                                 "action_id": "action_date",
                             },
-                            "label": {"type": "plain_text", "text": "Date"},
+                            "label": {"type": "plain_text", "text": "Дата"},
                         },
                         {
                             "type": "input",
                             "block_id": "block_start_time",
                             "element": {
                                 "type": "static_select",
-                                "placeholder": {"type": "plain_text", "text": "Select start time"},
+                                "placeholder": {"type": "plain_text", "text": "Оберіть час початку"},
                                 "options": common._available_time_options(),
                                 "action_id": "action_start_time",
                             },
-                            "label": {"type": "plain_text", "text": "Start Time"},
+                            "label": {"type": "plain_text", "text": "Час початку"},
                         },
                         {
                             "type": "input",
                             "block_id": "block_end_time",
                             "element": {
                                 "type": "static_select",
-                                "placeholder": {"type": "plain_text", "text": "Select end time"},
+                                "placeholder": {"type": "plain_text", "text": "Оберіть час завершення"},
                                 "options": common._available_time_options(),
                                 "action_id": "action_end_time",
                             },
-                            "label": {"type": "plain_text", "text": "End Time"},
+                            "label": {"type": "plain_text", "text": "Час завершення"},
                         },
                     ],
                 },
@@ -211,19 +215,19 @@ def register_book_time_handlers(app, yarooms, quota):
         if duration <= 0:
             await ack(
                 response_action="errors",
-                errors={"block_end_time": "End time must be after start time."},
+                errors={"block_end_time": "Час завершення має бути пізніше за час початку."},
             )
             return
         if duration > common.MAX_BOOKING_MINUTES:
             await ack(
                 response_action="errors",
-                errors={"block_end_time": f"Booking cannot be longer than {common.MAX_BOOKING_HOURS} hours per booking."},
+                errors={"block_end_time": f"Тривалість бронювання не може перевищувати {common.MAX_BOOKING_HOURS} год."},
             )
             return
         if common._is_past_slot(selected_date, start_time):
             await ack(
                 response_action="errors",
-                errors={"block_start_time": "This time has already passed. Please select a future time."},
+                errors={"block_start_time": "Цей час уже минув. Оберіть майбутній інтервал."},
             )
             return
 
@@ -238,14 +242,14 @@ def register_book_time_handlers(app, yarooms, quota):
                     response_action="errors",
                     errors={
                         "block_end_time": (
-                            f"Daily limit: {used}/{common.MAX_DAILY_BOOKING_MINUTES} min used. "
-                            f"Only {remaining} min left today."
+                            f"Денний ліміт: використано {used}/{common.MAX_DAILY_BOOKING_MINUTES} хв. "
+                            f"На сьогодні залишилось лише {remaining} хв."
                         ),
                     },
                 )
                 return
 
-        await ack(response_action="update", view=common.skeleton_view("Searching"))
+        await ack(response_action="update", view=common.skeleton_view("Пошук"))
 
         try:
             spaces = await yarooms.get_spaces_cached(force_refresh=True)
@@ -255,8 +259,8 @@ def register_book_time_handlers(app, yarooms, quota):
                 await client.views_update(
                     view_id=body["view"]["id"],
                     view=common.simple_modal(
-                        "No Rooms Found",
-                        "⚠️ Could not load the room list right now. Please try again in a moment.",
+                        "Кімнати не знайдено",
+                        "⚠️ Не вдалося завантажити список кімнат. Спробуйте ще раз за мить.",
                     ),
                 )
                 return
@@ -277,10 +281,10 @@ def register_book_time_handlers(app, yarooms, quota):
                 await client.views_update(
                     view_id=body["view"]["id"],
                     view=common.simple_modal(
-                        "No Rooms Found",
+                        "Кімнати не знайдено",
                         (
-                            f"😕 No available Skype rooms or Silent Boxes for *{selected_date}* "
-                            f"from *{start_time}* to *{end_time}*."
+                            f"😕 На *{selected_date}* з *{start_time}* до *{end_time}* "
+                            f"немає вільних Skype-кімнат або Silent Box."
                         ),
                     ),
                 )
@@ -305,9 +309,9 @@ def register_book_time_handlers(app, yarooms, quota):
             await client.views_update(
                 view_id=body["view"]["id"],
                 view=common.error_modal_with_context(
-                    "Booking Failed",
-                    "❌ Sorry, we couldn't complete room search right now. Please try again.",
-                    [f"Ref: `{error_ref}`", f"Details: `{error_detail}`"],
+                    "Помилка бронювання",
+                    "❌ Не вдалося виконати пошук кімнат. Спробуйте ще раз.",
+                    [f"Код: `{error_ref}`", f"Деталі: `{error_detail}`"],
                 ),
             )
 
@@ -336,7 +340,7 @@ def register_book_time_handlers(app, yarooms, quota):
         start_time = ""
         end_time = ""
         try:
-            await _safe_modal_update(common.skeleton_view("Booking"), stage="loading_skeleton")
+            await _safe_modal_update(common.skeleton_view("Бронювання"), stage="loading_skeleton")
 
             action = body["actions"][0]
             room_id, booking_date, start_time, end_time = action["value"].split("|", 3)
@@ -349,16 +353,16 @@ def register_book_time_handlers(app, yarooms, quota):
             if common._is_past_slot(booking_date, start_time):
                 await _safe_modal_update(
                     common.simple_modal(
-                        "Time Passed",
-                        "❌ This time slot has already passed. Please search again with a future time.",
+                        "Час минув",
+                        "❌ Цей часовий інтервал уже минув. Зробіть новий пошук для майбутнього часу.",
                     ),
                     stage="past_time",
                 )
                 return
 
-            # Re-check live availability
+            # Re-check live availability (bookings-based, not snapshot)
             try:
-                latest_slots = await yarooms.get_space_availability(
+                still_available = await yarooms.is_interval_free(
                     room_id,
                     booking_date,
                     start_time,
@@ -369,18 +373,13 @@ def register_book_time_handlers(app, yarooms, quota):
                     f"Book by Time re-check failed: room={room_id}, date={booking_date}, "
                     f"err={type(avail_err).__name__}: {avail_err}"
                 )
-                latest_slots = []
+                still_available = False
 
-            latest_available = common._normalized_available_slots(latest_slots, apply_duration_cap=False)
-            still_available = any(
-                common._covers_interval(slot, start_time, end_time)
-                for slot in latest_available
-            )
             if not still_available:
                 await _safe_modal_update(
                     common.simple_modal(
-                        "Slot Unavailable",
-                        "❌ This slot is no longer available. Please try searching again.",
+                        "Інтервал недоступний",
+                        "❌ Цей інтервал уже недоступний. Спробуйте виконати пошук знову.",
                     ),
                     stage="slot_unavailable",
                 )
@@ -421,9 +420,9 @@ def register_book_time_handlers(app, yarooms, quota):
                 error_detail = str(book_err)[:120]
                 await _safe_modal_update(
                     common.error_modal_with_context(
-                        "Booking Failed",
-                        "❌ The room could not be booked — it may have just been taken. Please try searching again.",
-                        [f"Details: `{error_detail}`"],
+                        "Помилка бронювання",
+                        "❌ Не вдалося забронювати кімнату — можливо, її щойно зайняли. Спробуйте пошук ще раз.",
+                        [f"Деталі: `{error_detail}`"],
                     ),
                     stage="booking_failed",
                 )
@@ -439,14 +438,14 @@ def register_book_time_handlers(app, yarooms, quota):
             await _safe_modal_update(
                 {
                     "type": "modal",
-                    "title": {"type": "plain_text", "text": "Room Booked!", "emoji": False},
-                    "close": {"type": "plain_text", "text": "Done", "emoji": False},
+                    "title": {"type": "plain_text", "text": "Кімнату заброньовано", "emoji": False},
+                    "close": {"type": "plain_text", "text": "Готово", "emoji": False},
                     "blocks": [
                         {
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": f"🎉 Successfully booked *{room_name}*.",
+                                "text": f"🎉 Успішно заброньовано *{room_name}*.",
                             },
                         },
                         {
@@ -454,7 +453,7 @@ def register_book_time_handlers(app, yarooms, quota):
                             "elements": [
                                 {
                                     "type": "mrkdwn",
-                                    "text": f"📅 *Date:* {booking_date} | ⏰ *Time:* {start_time} - {end_time}",
+                                    "text": f"📅 *Дата:* {booking_date} | ⏰ *Час:* {start_time} - {end_time}",
                                 }
                             ],
                         },
@@ -481,13 +480,13 @@ def register_book_time_handlers(app, yarooms, quota):
             )
             updated = await _safe_modal_update(
                 common.simple_modal(
-                    "Booking Failed",
-                    "❌ Could not complete booking for this room. Please try again.",
+                    "Помилка бронювання",
+                    "❌ Не вдалося завершити бронювання цієї кімнати. Спробуйте ще раз.",
                 ),
                 stage="exception_fallback",
             )
             if not updated:
                 await client.chat_postMessage(
                     channel=body["user"]["id"],
-                    text="Could not update the booking window. Please reopen Home and try again.",
+                    text="Не вдалося оновити вікно бронювання. Відкрийте Home повторно та спробуйте ще раз.",
                 )

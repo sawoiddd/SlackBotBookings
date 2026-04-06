@@ -25,7 +25,7 @@ def register_hot_booking_handlers(app, yarooms, quota):
         try:
             response = await client.views_open(
                 trigger_id=body["trigger_id"],
-                view=common.skeleton_view("Finding a room"),
+                view=common.skeleton_view("Пошук кімнати"),
             )
             new_view_id = response["view"]["id"]
             user_id = body["user"]["id"]
@@ -40,8 +40,8 @@ def register_hot_booking_handlers(app, yarooms, quota):
                 await client.views_update(
                     view_id=new_view_id,
                     view=common.simple_modal(
-                        "Hot Booking",
-                        "⚠️ Hot booking is unavailable near midnight. Please use Book by Time.",
+                        "Швидке бронювання",
+                        "⚠️ Швидке бронювання недоступне біля опівночі. Скористайтеся бронюванням за часом.",
                     ),
                 )
                 return
@@ -69,9 +69,22 @@ def register_hot_booking_handlers(app, yarooms, quota):
                     )
                     return
 
-            space = await yarooms.find_available_space(today, start_time, end_time)
+            # Find first room that is truly free (bookings-based check)
+            spaces = await yarooms.get_spaces_cached()
+            space = None
+            for candidate in spaces:
+                cid = str(candidate.get("id") or candidate.get("spaceId") or "")
+                if not cid:
+                    continue
+                try:
+                    if await yarooms.is_interval_free(cid, today, start_time, end_time):
+                        space = candidate
+                        break
+                except Exception:
+                    continue
+
             if space is None:
-                raise RuntimeError("No rooms available right now.")
+                raise RuntimeError("Наразі немає вільних кімнат.")
 
             booking_result = await yarooms.create_booking(
                 space_id=space["id"],
@@ -79,7 +92,7 @@ def register_hot_booking_handlers(app, yarooms, quota):
                 start_time=start_time,
                 end_time=end_time,
                 user_email=user_email,
-                title="Hot Booking via Slack",
+                title="Швидке бронювання через Slack",
             )
 
             # ── Record quota ONLY after successful booking ────────────────
@@ -92,20 +105,20 @@ def register_hot_booking_handlers(app, yarooms, quota):
                 view_id=new_view_id,
                 view={
                     "type": "modal",
-                    "title": {"type": "plain_text", "text": "Room Booked", "emoji": False},
-                    "close": {"type": "plain_text", "text": "Done", "emoji": False},
+                    "title": {"type": "plain_text", "text": "Кімнату заброньовано", "emoji": False},
+                    "close": {"type": "plain_text", "text": "Готово", "emoji": False},
                     "blocks": [
                         {
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": f"⚡ *{space['name']}* is yours until *{end_time}*!",
+                                "text": f"⚡ *{space['name']}* ваша до *{end_time}*!",
                             },
                         },
                         {
                             "type": "context",
                             "elements": [
-                                {"type": "mrkdwn", "text": "Your Yarooms schedule has been updated."}
+                                {"type": "mrkdwn", "text": "Ваш розклад у Yarooms оновлено."}
                             ],
                         },
                     ],
@@ -116,7 +129,7 @@ def register_hot_booking_handlers(app, yarooms, quota):
                 client=client,
                 logger=logger,
                 user_id=user_id,
-                room_name=space.get("name", space.get("id", "Unknown room")),
+                room_name=space.get("name", space.get("id", "Невідома кімната")),
                 booking_date=today,
                 start_time=start_time,
                 end_time=end_time,
@@ -130,5 +143,5 @@ def register_hot_booking_handlers(app, yarooms, quota):
             )
             await client.chat_postMessage(
                 channel=body["user"]["id"],
-                text="Sorry, we couldn't complete the hot booking right now.",
+                text="На жаль, зараз не вдалося виконати швидке бронювання.",
             )

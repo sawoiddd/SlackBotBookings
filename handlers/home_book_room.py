@@ -59,9 +59,9 @@ def register_book_room_handlers(app, yarooms, quota):
                 await client.views_open(
                     trigger_id=body["trigger_id"],
                     view=common.error_modal_with_context(
-                        "Book by Room",
-                        "❌ Could not load rooms from Yarooms right now. Please try again in a few seconds.",
-                        [f"Details: `{load_error_text[:120]}`" if load_error_text else "Details: unavailable"],
+                        "Бронювання кімнати",
+                        "❌ Не вдалося завантажити кімнати з Yarooms. Спробуйте ще раз за кілька секунд.",
+                        [f"Деталі: `{load_error_text[:120]}`" if load_error_text else "Деталі: недоступні"],
                     ),
                 )
                 return
@@ -71,15 +71,15 @@ def register_book_room_handlers(app, yarooms, quota):
                 view={
                     "type": "modal",
                     "callback_id": "modal_book_room_submit",
-                    "title": {"type": "plain_text", "text": "Book by Room", "emoji": False},
-                    "submit": {"type": "plain_text", "text": "Check Schedule", "emoji": False},
-                    "close": {"type": "plain_text", "text": "Cancel", "emoji": False},
+                    "title": {"type": "plain_text", "text": "Бронювання кімнати", "emoji": False},
+                    "submit": {"type": "plain_text", "text": "Показати розклад", "emoji": False},
+                    "close": {"type": "plain_text", "text": "Скасувати", "emoji": False},
                     "blocks": [
                         {
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": "Select a specific room and date to see its available time slots.",
+                                "text": "Оберіть кімнату та дату, щоб побачити доступні часові інтервали.",
                             },
                         },
                         {"type": "divider"},
@@ -88,21 +88,21 @@ def register_book_room_handlers(app, yarooms, quota):
                             "block_id": "block_room",
                             "element": {
                                 "type": "static_select",
-                                "placeholder": {"type": "plain_text", "text": "Select a room", "emoji": False},
+                                "placeholder": {"type": "plain_text", "text": "Оберіть кімнату", "emoji": False},
                                 "options": options,
                                 "action_id": "action_room",
                             },
-                            "label": {"type": "plain_text", "text": "Which room?", "emoji": False},
+                            "label": {"type": "plain_text", "text": "Яка кімната?", "emoji": False},
                         },
                         {
                             "type": "input",
                             "block_id": "block_room_date",
                             "element": {
                                 "type": "datepicker",
-                                "placeholder": {"type": "plain_text", "text": "Select a date", "emoji": False},
+                                "placeholder": {"type": "plain_text", "text": "Оберіть дату", "emoji": False},
                                 "action_id": "action_room_date",
                             },
-                            "label": {"type": "plain_text", "text": "On which date?", "emoji": False},
+                            "label": {"type": "plain_text", "text": "На яку дату?", "emoji": False},
                         },
                     ],
                 },
@@ -119,7 +119,7 @@ def register_book_room_handlers(app, yarooms, quota):
         presents two ``static_select`` pickers whose options are restricted
         to times inside those free windows only.
         """
-        await ack(response_action="update", view=common.skeleton_view("Loading schedule"))
+        await ack(response_action="update", view=common.skeleton_view("Завантаження розкладу"))
         state_values = view["state"]["values"]
         try:
             selected_option = state_values["block_room"]["action_room"]["selected_option"]
@@ -155,8 +155,8 @@ def register_book_room_handlers(app, yarooms, quota):
                 await client.views_update(
                     view_id=body["view"]["id"],
                     view=common.simple_modal(
-                        "No Available Time",
-                        f"😕 No free time found for *{room_name}* on *{selected_date}*.",
+                        "Немає доступного часу",
+                        f"😕 Для *{room_name}* на *{selected_date}* не знайдено вільного часу.",
                     ),
                 )
                 return
@@ -170,16 +170,16 @@ def register_book_room_handlers(app, yarooms, quota):
                 h, m = divmod(dur, 60)
                 dur_str = f"{h}h {m}min" if m else f"{h}h"
                 schedule_lines.append(f"✅  *{w['start']} – {w['end']}*  ({dur_str})")
-            schedule_text = "\n".join(schedule_lines) or "_No free windows_"
+            schedule_text = "\n".join(schedule_lines) or "_Немає вільних інтервалів_"
 
             await client.views_update(
                 view_id=body["view"]["id"],
                 view={
                     "type": "modal",
                     "callback_id": "modal_book_room_time_submit",
-                    "title": {"type": "plain_text", "text": "Book Room", "emoji": False},
-                    "submit": {"type": "plain_text", "text": "Book", "emoji": False},
-                    "close": {"type": "plain_text", "text": "Cancel", "emoji": False},
+                    "title": {"type": "plain_text", "text": "Бронювання кімнати", "emoji": False},
+                    "submit": {"type": "plain_text", "text": "Забронювати", "emoji": False},
+                    "close": {"type": "plain_text", "text": "Скасувати", "emoji": False},
                     "private_metadata": f"{room_id}|{selected_date}",
                     "blocks": [
                         {
@@ -194,7 +194,7 @@ def register_book_room_handlers(app, yarooms, quota):
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": "_Pick a start and end time within the free intervals above:_",
+                                "text": "_Оберіть час початку та завершення в межах вільних інтервалів вище:_",
                             },
                         },
                         {
@@ -202,22 +202,22 @@ def register_book_room_handlers(app, yarooms, quota):
                             "block_id": "block_book_start",
                             "element": {
                                 "type": "static_select",
-                                "placeholder": {"type": "plain_text", "text": "Start time", "emoji": False},
+                                "placeholder": {"type": "plain_text", "text": "Час початку", "emoji": False},
                                 "options": start_options,
                                 "action_id": "action_book_start",
                             },
-                            "label": {"type": "plain_text", "text": "Start Time", "emoji": False},
+                            "label": {"type": "plain_text", "text": "Час початку", "emoji": False},
                         },
                         {
                             "type": "input",
                             "block_id": "block_book_end",
                             "element": {
                                 "type": "static_select",
-                                "placeholder": {"type": "plain_text", "text": "End time", "emoji": False},
+                                "placeholder": {"type": "plain_text", "text": "Час завершення", "emoji": False},
                                 "options": end_options,
                                 "action_id": "action_book_end",
                             },
-                            "label": {"type": "plain_text", "text": "End Time", "emoji": False},
+                            "label": {"type": "plain_text", "text": "Час завершення", "emoji": False},
                         },
                     ],
                 },
@@ -227,8 +227,8 @@ def register_book_room_handlers(app, yarooms, quota):
             await client.views_update(
                 view_id=body["view"]["id"],
                 view=common.simple_modal(
-                    "Error",
-                    "❌ Could not load the room schedule. Please try again.",
+                    "Помилка",
+                    "❌ Не вдалося завантажити розклад кімнати. Спробуйте ще раз.",
                 ),
             )
 
@@ -257,7 +257,7 @@ def register_book_room_handlers(app, yarooms, quota):
         if duration <= 0:
             await ack(
                 response_action="errors",
-                errors={"block_book_end": "End time must be after start time."},
+                errors={"block_book_end": "Час завершення має бути пізніше за час початку."},
             )
             return
         if duration > common.MAX_BOOKING_MINUTES:
@@ -265,7 +265,7 @@ def register_book_room_handlers(app, yarooms, quota):
                 response_action="errors",
                 errors={
                     "block_book_end": (
-                        f"Booking cannot exceed {common.MAX_BOOKING_HOURS} hours."
+                        f"Тривалість бронювання не може перевищувати {common.MAX_BOOKING_HOURS} год."
                     ),
                 },
             )
@@ -273,7 +273,7 @@ def register_book_room_handlers(app, yarooms, quota):
         if common._is_past_slot(booking_date, start_time):
             await ack(
                 response_action="errors",
-                errors={"block_book_start": "This time has already passed."},
+                errors={"block_book_start": "Цей час уже минув."},
             )
             return
 
@@ -288,14 +288,14 @@ def register_book_room_handlers(app, yarooms, quota):
                     response_action="errors",
                     errors={
                         "block_book_end": (
-                            f"Daily limit: {used}/{common.MAX_DAILY_BOOKING_MINUTES} min used. "
-                            f"Only {remaining} min left today."
+                            f"Денний ліміт: використано {used}/{common.MAX_DAILY_BOOKING_MINUTES} хв. "
+                            f"Залишилось лише {remaining} хв на сьогодні."
                         ),
                     },
                 )
                 return
 
-        await ack(response_action="update", view=common.skeleton_view("Booking"))
+        await ack(response_action="update", view=common.skeleton_view("Бронювання"))
 
         try:
             # ── Live availability re-check ───────────────────────────────
@@ -340,8 +340,8 @@ def register_book_room_handlers(app, yarooms, quota):
                 await client.views_update(
                     view_id=body["view"]["id"],
                     view=common.simple_modal(
-                        "Slot Unavailable",
-                        "❌ The selected time is no longer available — the room may have just been booked.",
+                        "Інтервал недоступний",
+                        "❌ Обраний час більше недоступний — кімнату могли щойно забронювати.",
                     ),
                 )
                 return
@@ -363,9 +363,9 @@ def register_book_room_handlers(app, yarooms, quota):
                 await client.views_update(
                     view_id=body["view"]["id"],
                     view=common.error_modal_with_context(
-                        "Booking Failed",
-                        "❌ The room could not be booked. Please try again.",
-                        [f"Details: `{str(book_err)[:120]}`"],
+                        "Помилка бронювання",
+                        "❌ Не вдалося забронювати кімнату. Спробуйте ще раз.",
+                        [f"Деталі: `{str(book_err)[:120]}`"],
                     ),
                 )
                 return
@@ -382,23 +382,23 @@ def register_book_room_handlers(app, yarooms, quota):
                 view_id=body["view"]["id"],
                 view={
                     "type": "modal",
-                    "title": {"type": "plain_text", "text": "Booking Confirmed", "emoji": False},
-                    "close": {"type": "plain_text", "text": "Done", "emoji": False},
+                    "title": {"type": "plain_text", "text": "Бронювання підтверджено", "emoji": False},
+                    "close": {"type": "plain_text", "text": "Готово", "emoji": False},
                     "blocks": [
                         {
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
                                 "text": (
-                                    f"✅ Booked *{room_name}* on *{booking_date}* "
-                                    f"from *{start_time}* to *{end_time}*."
+                                    f"✅ Заброньовано *{room_name}* на *{booking_date}* "
+                                    f"з *{start_time}* до *{end_time}*."
                                 ),
                             },
                         },
                         {
                             "type": "context",
                             "elements": [
-                                {"type": "mrkdwn", "text": "Your reservation has been added to Yarooms."}
+                                {"type": "mrkdwn", "text": "Ваше бронювання додано в Yarooms."}
                             ],
                         },
                     ],
@@ -421,8 +421,8 @@ def register_book_room_handlers(app, yarooms, quota):
             await client.views_update(
                 view_id=body["view"]["id"],
                 view=common.simple_modal(
-                    "Booking Failed",
-                    "❌ Could not complete this booking. Please try again.",
+                    "Помилка бронювання",
+                    "❌ Не вдалося завершити це бронювання. Спробуйте ще раз.",
                 ),
             )
 
@@ -442,8 +442,8 @@ def register_book_room_handlers(app, yarooms, quota):
                 await client.views_update(
                     view_id=body["view"]["id"],
                     view=common.simple_modal(
-                        "Booking Rejected",
-                        f"❌ This slot exceeds the *{common.MAX_BOOKING_HOURS}-hour* per-booking limit and cannot be booked.",
+                        "Бронювання відхилено",
+                        f"❌ Цей інтервал перевищує ліміт *{common.MAX_BOOKING_HOURS} год* на одне бронювання.",
                     ),
                 )
                 return
@@ -454,8 +454,8 @@ def register_book_room_handlers(app, yarooms, quota):
                 await client.views_update(
                     view_id=body["view"]["id"],
                     view=common.simple_modal(
-                        "Time Passed",
-                        "❌ This time slot has already passed. Please refresh the schedule and choose a future slot.",
+                        "Час минув",
+                        "❌ Цей часовий інтервал уже минув. Оновіть розклад та оберіть майбутній.",
                     ),
                 )
                 return
@@ -498,8 +498,8 @@ def register_book_room_handlers(app, yarooms, quota):
                 await client.views_update(
                     view_id=body["view"]["id"],
                     view=common.simple_modal(
-                        "Slot Unavailable",
-                        "❌ This slot is no longer available. Please refresh the schedule and choose another one.",
+                        "Інтервал недоступний",
+                        "❌ Цей інтервал більше недоступний. Оновіть розклад і оберіть інший.",
                     ),
                 )
                 return
@@ -539,9 +539,9 @@ def register_book_room_handlers(app, yarooms, quota):
                 await client.views_update(
                     view_id=body["view"]["id"],
                     view=common.error_modal_with_context(
-                        "Booking Failed",
-                        "❌ The room could not be booked — it may have just been taken. Please try again.",
-                        [f"Details: `{error_detail}`"],
+                        "Помилка бронювання",
+                        "❌ Не вдалося забронювати кімнату — можливо, її щойно зайняли. Спробуйте ще раз.",
+                        [f"Деталі: `{error_detail}`"],
                     ),
                 )
                 return
@@ -558,20 +558,20 @@ def register_book_room_handlers(app, yarooms, quota):
                 view_id=body["view"]["id"],
                 view={
                     "type": "modal",
-                    "title": {"type": "plain_text", "text": "Booking Confirmed", "emoji": False},
-                    "close": {"type": "plain_text", "text": "Done", "emoji": False},
+                    "title": {"type": "plain_text", "text": "Бронювання підтверджено", "emoji": False},
+                    "close": {"type": "plain_text", "text": "Готово", "emoji": False},
                     "blocks": [
                         {
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": f"✅ You have booked the room from *{start_time}* to *{end_time}* on *{booking_date}*.",
+                                "text": f"✅ Ви забронювали кімнату з *{start_time}* до *{end_time}* на *{booking_date}*.",
                             },
                         },
                         {
                             "type": "context",
                             "elements": [
-                                {"type": "mrkdwn", "text": "Your reservation has been added to Yarooms."}
+                                {"type": "mrkdwn", "text": "Ваше бронювання додано в Yarooms."}
                             ],
                         },
                     ],
@@ -594,7 +594,7 @@ def register_book_room_handlers(app, yarooms, quota):
             await client.views_update(
                 view_id=body["view"]["id"],
                 view=common.simple_modal(
-                    "Booking Failed",
-                    "Sorry, we couldn't complete this booking. The slot might no longer be available.",
+                    "Помилка бронювання",
+                    "Не вдалося завершити це бронювання. Можливо, інтервал уже недоступний.",
                 ),
             )

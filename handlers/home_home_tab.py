@@ -25,14 +25,14 @@ def build_home_tab_view() -> dict:
         "blocks": [
             {
                 "type": "header",
-                "text": {"type": "plain_text", "text": " Yarooms Booking Dashboard"},
+                "text": {"type": "plain_text", "text": " Панель бронювання скайп румів та сайлент боксів"},
             },
             {
                 "type": "context",
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "Welcome! Use the options below to find and book a free room.",
+                        "text": "Вітаємо! Оберіть дію нижче, щоб знайти та забронювати вільну кімнату.",
                     }
                 ],
             },

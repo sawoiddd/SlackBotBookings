@@ -6,6 +6,7 @@ HTTP session.
 import asyncio
 import logging
 import os
+import signal
 import sys
 from datetime import datetime, timezone
 
@@ -46,6 +47,13 @@ app = AsyncApp(token=tokens["bot-token"])
 
 
 async def main():
+    # Docker sends SIGTERM on `docker stop`; translate it into the same
+    # KeyboardInterrupt that Ctrl-C / SIGINT produces so the finally block
+    # (YaroomsClient.close) always runs.
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, _raise_graceful_exit)
+
     yarooms = await register_home_handlers(app, tokens)
     handler = AsyncSocketModeHandler(app, tokens["app-token"])
     try:
@@ -53,6 +61,11 @@ async def main():
     finally:
         logger.info("Shutting down — closing YaroomsClient session…")
         await yarooms.close()
+
+
+def _raise_graceful_exit() -> None:
+    """Signal callback — raises SystemExit so asyncio.run() tears down cleanly."""
+    raise SystemExit(0)
 
 
 if __name__ == "__main__":

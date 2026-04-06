@@ -1,0 +1,26 @@
+# Version control
+.git/
+.gitignore
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Environment / secrets
+.env
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project docs / dev files
+AGENTS.md
+README.md
+run.txt
+LICENSE
+

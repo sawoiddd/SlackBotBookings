@@ -32,10 +32,10 @@ async def notify_booking_in_chat(
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        "✅ *Booking confirmed!*\n"
-                        f"*Room:* {room_name}\n"
-                        f"*Date:* {booking_date}\n"
-                        f"*Time:* {start_time} - {end_time}"
+                        "✅ *Бронювання підтверджено!*\n"
+                        f"*Кімната:* {room_name}\n"
+                        f"*Дата:* {booking_date}\n"
+                        f"*Час:* {start_time} - {end_time}"
                     ),
                 },
             }
@@ -50,19 +50,19 @@ async def notify_booking_in_chat(
                             "type": "button",
                             "action_id": "action_cancel_booking",
                             "style": "danger",
-                            "text": {"type": "plain_text", "text": "Cancel booking", "emoji": False},
+                            "text": {"type": "plain_text", "text": "Скасувати бронювання", "emoji": False},
                             "value": json.dumps(payload, separators=(",", ":")),
                             "confirm": {
-                                "title": {"type": "plain_text", "text": "Cancel booking?", "emoji": False},
+                                "title": {"type": "plain_text", "text": "Скасувати бронювання?", "emoji": False},
                                 "text": {
                                     "type": "mrkdwn",
                                     "text": (
-                                        f"Cancel booking for *{booking_date}* "
-                                        f"*{start_time}-{end_time}*?"
+                                        f"Скасувати бронювання на *{booking_date}* "
+                                        f"(*{start_time}-{end_time}*)?"
                                     ),
                                 },
-                                "confirm": {"type": "plain_text", "text": "Yes, cancel", "emoji": False},
-                                "deny": {"type": "plain_text", "text": "Keep booking", "emoji": False},
+                                "confirm": {"type": "plain_text", "text": "Так, скасувати", "emoji": False},
+                                "deny": {"type": "plain_text", "text": "Залишити", "emoji": False},
                             },
                         }
                     ],
@@ -72,10 +72,10 @@ async def notify_booking_in_chat(
         await client.chat_postMessage(
             channel=user_id,
             text=(
-                "Booking confirmed!\n"
-                f"Room: {room_name}\n"
-                f"Date: {booking_date}\n"
-                f"Time: {start_time} - {end_time}"
+                "Бронювання підтверджено!\n"
+                f"Кімната: {room_name}\n"
+                f"Дата: {booking_date}\n"
+                f"Час: {start_time} - {end_time}"
             ),
             blocks=blocks,
         )

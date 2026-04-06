@@ -1,0 +1,28 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    environment:
+      # Override REDIS_URL so the bot reaches the companion Redis container.
+      # If you removed the redis service below, delete this line — the bot
+      # will fall back to its in-memory cache automatically.
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+
