@@ -191,6 +191,15 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# JetBrains / IntelliJ / PyCharm
+.idea/
+*.iws
+*.out
+*.xml
+# But keep the actual project configuration if your team shares it:
+# !.idea/vcs.xml
+# !.idea/modules.xml
+
 # PyPI configuration file
 .pypirc
 
@@ -205,3 +214,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+config.json
+
+run.txt
