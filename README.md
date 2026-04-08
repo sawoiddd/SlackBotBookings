@@ -73,6 +73,7 @@ SLACK_APP_TOKEN=xapp-...
 SLACK_BOT_TOKEN=xoxb-...
 YAROOMS_API_KEY=<your Yarooms API token>
 YAROOMS_BASE_URL=https://api.yarooms.com
+TIMEZONE=Europe/Kyiv
 LOG_LEVEL=DEBUG
 ```
 
@@ -86,6 +87,7 @@ YAROOMS_PASSWORD=secret
 YAROOMS_SUBDOMAIN=KSE
 YAROOMS_BASE_URL=https://kse.eu.yarooms.com
 REDIS_URL=redis://localhost:6379/0
+TIMEZONE=Europe/Kyiv
 LOG_LEVEL=DEBUG
 ```
 
@@ -99,6 +101,7 @@ LOG_LEVEL=DEBUG
 | `YAROOMS_SUBDOMAIN` | ❌ | Sent as query param to `/api/auth` |
 | `YAROOMS_BASE_URL` | ❌ | Defaults to `https://api.yarooms.com` |
 | `REDIS_URL` | ❌ | Falls back to in-memory cache |
+| `TIMEZONE` | ❌ | IANA timezone for local-time checks (default `Europe/Kyiv`) |
 | `LOG_LEVEL` | ❌ | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
 
 > **Never commit `.env` or token values.** The file is already in `.gitignore`.

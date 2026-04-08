@@ -32,8 +32,25 @@ def register_hot_booking_handlers(app, yarooms, quota):
 
             # Yarooms booking strategies commonly require fixed minute steps.
             # Align Hot Booking start/end to 10-minute boundaries to avoid 400s.
-            start_dt = _round_up_to_10_minute_boundary(datetime.now())
+            start_dt = _round_up_to_10_minute_boundary(common.get_local_now())
             end_dt = start_dt + timedelta(minutes=30)
+
+            # ── Operating-hours guard (08:00 – 22:00) ────────────────────────
+            if start_dt.hour < common.BOOKING_START_HOUR or (
+                end_dt.hour > common.BOOKING_END_HOUR
+                or (end_dt.hour == common.BOOKING_END_HOUR and end_dt.minute > 0)
+            ):
+                await client.views_update(
+                    view_id=new_view_id,
+                    view=common.simple_modal(
+                        "Швидке бронювання",
+                        f"⚠️ Швидке бронювання доступне лише з "
+                        f"{common.BOOKING_START_HOUR:02d}:00 до "
+                        f"{common.BOOKING_END_HOUR:02d}:00. "
+                        f"Спробуйте пізніше або скористайтеся бронюванням за часом.",
+                    ),
+                )
+                return
 
             # Cross-midnight is unsupported by create_booking(date + HH:MM pair).
             if end_dt.date() != start_dt.date():
