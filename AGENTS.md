@@ -9,7 +9,7 @@
 - **`handlers/home_hot_booking.py`** — Hot Booking action handler.
 - **`handlers/home_cancel_booking.py`** — DM cancellation button action handler (`action_cancel_booking`).
 - **`handlers/home_common.py`** — common module imported by feature handlers; re-exports shared booking/slack helpers and provides `get_user_email`, `safe_get_room_name`.
-- **`utils/booking_utils.py`** — booking/time helpers and constants: `MAX_BOOKING_HOURS`, `MAX_BOOKING_MINUTES`, `MAX_DAILY_BOOKING_MINUTES`, `_to_minutes`, `_to_hhmm`, `_duration_minutes`, `_available_time_options`, `_schedule_time_options`, `_normalized_available_slots`, `_covers_interval`, `_is_past_slot`, `_generate_bookable_sub_slots`.
+- **`utils/booking_utils.py`** — booking/time helpers and constants: `MAX_BOOKING_HOURS`, `MAX_BOOKING_MINUTES`, `MAX_DAILY_BOOKING_MINUTES`, `BOOKING_START_HOUR`, `BOOKING_END_HOUR`, `get_local_now`, `_to_minutes`, `_to_hhmm`, `_duration_minutes`, `_available_time_options`, `_schedule_time_options`, `_normalized_available_slots`, `_covers_interval`, `_is_past_slot`, `_generate_bookable_sub_slots`.
 - **`utils/slack_views.py`** — shared Slack view builders (`skeleton_view`, `simple_modal`, `error_modal_with_context`, `quota_exceeded_modal`).
 - **`utils/slack_notifications.py`** — shared chat notification helper (`notify_booking_in_chat`), now includes DM cancellation button when `booking_id` is known.
 - **`utils/daily_quota.py`** — per-user daily booking quota tracker (`DailyQuotaTracker`). Uses Redis (primary) with in-memory fallback. Counter is incremented **only after** `create_booking` succeeds and decremented after successful cancellation (`record_cancellation`).
@@ -26,6 +26,7 @@ SLACK_APP_TOKEN=xapp-...
 SLACK_BOT_TOKEN=xoxb-...
 YAROOMS_API_KEY=<your Yarooms API token>
 YAROOMS_BASE_URL=https://api.yarooms.com
+TIMEZONE=Europe/Kyiv            # optional; defaults to Europe/Kyiv
 LOG_LEVEL=DEBUG
 ```
 
@@ -38,6 +39,7 @@ YAROOMS_PASSWORD=secret
 YAROOMS_SUBDOMAIN=KSE          # optional; sent as query param to /api/auth
 YAROOMS_BASE_URL=https://kse.eu.yarooms.com
 REDIS_URL=redis://localhost:6379/0  # optional; falls back to in-memory cache
+TIMEZONE=Europe/Kyiv            # optional; defaults to Europe/Kyiv
 LOG_LEVEL=DEBUG
 ```
 
@@ -70,11 +72,13 @@ Both `YAROOMS_EMAIL` **and** `YAROOMS_PASSWORD` must be present when no API key 
   - `handle_book_specific_slot`: validated after unpacking the button value; on failure modal updates to a "Booking Rejected" error view.
   - `handle_book_room_submission`: slots exceeding the limit are filtered out before rendering the schedule view.
 - Duration helper: `_duration_minutes(start, end)` — module-level in `utils/booking_utils.py`; returns negative if end ≤ start.
-- **No past bookings:** `_is_past_slot(date_str, start_time)` rejects slots whose start has already passed (`datetime.now()`).
+- **No past bookings:** `_is_past_slot(date_str, start_time)` rejects slots whose start has already passed (`get_local_now()`).
   - `handle_book_time_submission`: inline modal error on `block_start_time` before `ack()` skeleton.
   - `handle_book_time_specific_room`: modal "Time Passed" before re-checking availability.
   - `handle_book_room_submission`: past slots are filtered out of the schedule view before rendering.
   - `handle_book_specific_slot`: modal "Time Passed" before re-checking availability.
+- **Operating hours: 08:00 – 22:00** (`BOOKING_START_HOUR = 8`, `BOOKING_END_HOUR = 22` in `utils/booking_utils.py`). Book by Time and Book by Room enforce this via `_available_time_options()` defaults. Hot Booking has an explicit curfew guard that rejects bookings outside this window.
+- **Timezone-aware time:** All "current time" checks use `get_local_now()` (`utils/booking_utils.py`) which reads `TIMEZONE` env var (default `Europe/Kyiv`). Never use bare `datetime.now()` — it returns UTC inside Docker containers.
 
 ## Handler patterns to preserve
 - Always call `await ack()` first for actions.
@@ -85,7 +89,7 @@ Both `YAROOMS_EMAIL` **and** `YAROOMS_PASSWORD` must be present when no API key 
 - `Book by Time` submission now fetches API availability and shows a "Choose a Room" list; booking is finalized only after user clicks `action_book_time_specific_room` (with a live re-check before create).
 - `Book by Time` availability uses `is_interval_free` (bookings-based, `/api/bookings`) for parallel room checks via `_find_available_rooms`, with concurrency capped by `MAX_PARALLEL_AVAILABILITY_CHECKS = 8`.
 - `handle_book_time_specific_room` uses a `_safe_modal_update` helper for best-effort modal updates to avoid Slack action red-crosses on UI errors.
-- **Hot Booking** duration is fixed at **30 minutes**. Start/end times are aligned to **10-minute boundaries** via `_round_up_to_10_minute_boundary`. Cross-midnight bookings are rejected. Uses per-room `is_interval_free` iteration (not `find_available_space`).
+- **Hot Booking** duration is fixed at **30 minutes**. Start/end times are aligned to **10-minute boundaries** via `_round_up_to_10_minute_boundary`. Cross-midnight bookings are rejected. An operating-hours guard rejects requests outside `BOOKING_START_HOUR`–`BOOKING_END_HOUR`. Uses `get_local_now()` for timezone-correct time. Uses per-room `is_interval_free` iteration (not `find_available_space`).
 - `_available_time_options(start_hour=8, end_hour=22, minute_step=10)` supports configurable ranges; defaults provide **10-minute increments** from `08:00` through `21:50`, which keeps each Slack `static_select` under the 100-option limit.
 - Keep `_available_time_options()` under Slack `static_select` limit (max 100 options per field).
 - Slot button value format: `"{room_id}_{start}_{end}"` — parsed with **`rsplit("_", 2)`** (not `split`) so room IDs containing underscores are handled safely. Used only in legacy `action_book_specific_slot`.

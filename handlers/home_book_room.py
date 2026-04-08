@@ -3,8 +3,6 @@ slots schedule, and taps a slot to book.  Past slots are filtered out and a
 live re-check is performed before create_booking.
 """
 
-from datetime import datetime
-
 import handlers.home_common as common
 
 
@@ -448,7 +446,7 @@ def register_book_room_handlers(app, yarooms, quota):
                 )
                 return
 
-            booking_date = body["view"].get("private_metadata") or datetime.now().strftime("%Y-%m-%d")
+            booking_date = body["view"].get("private_metadata") or common.get_local_now().strftime("%Y-%m-%d")
 
             if common._is_past_slot(booking_date, start_time):
                 await client.views_update(

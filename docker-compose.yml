@@ -7,6 +7,9 @@ services:
       # If you removed the redis service below, delete this line — the bot
       # will fall back to its in-memory cache automatically.
       REDIS_URL: redis://redis:6379/0
+      # Timezone for correct local-time calculations inside the container.
+      TZ: Europe/Kyiv
+      TIMEZONE: Europe/Kyiv
     depends_on:
       redis:
         condition: service_healthy

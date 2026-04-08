@@ -13,12 +13,31 @@ Functions:
     _is_past_slot       — reject slots whose start has already passed.
 """
 
+import os
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 MAX_BOOKING_HOURS = 3
 MAX_BOOKING_MINUTES = MAX_BOOKING_HOURS * 60
 MAX_DAILY_BOOKING_MINUTES = MAX_BOOKING_HOURS * 60  # per-user daily ceiling (same as per-booking for now)
+
+BOOKING_START_HOUR = 8   # earliest bookable hour (inclusive)
+BOOKING_END_HOUR = 22    # latest bookable hour (exclusive — last slot must end by 22:00)
+
+_LOCAL_TZ = ZoneInfo(os.environ.get("TIMEZONE", "Europe/Kyiv"))
+
+
+def get_local_now() -> datetime:
+    """Return the current wall-clock time in the configured local timezone.
+
+    The timezone is read once from the ``TIMEZONE`` environment variable
+    (default ``Europe/Kyiv``).  Using this instead of bare ``datetime.now()``
+    ensures correct behaviour when the bot runs inside a UTC Docker container.
+    """
+    return datetime.now(_LOCAL_TZ)
+
+
 _TIME_RE = re.compile(r"(\d{1,2}):(\d{2})(?::(\d{2}))?")
 
 
@@ -145,11 +164,12 @@ def _is_past_slot(date_str: str, start_time: str) -> bool:
 
     Returns:
         ``True`` when the slot start has already passed (compared to
-        ``datetime.now()``), ``False`` otherwise or on parse errors.
+        ``get_local_now()``), ``False`` otherwise or on parse errors.
     """
     try:
         slot_dt = datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M")
-        return slot_dt < datetime.now()
+        slot_dt = slot_dt.replace(tzinfo=_LOCAL_TZ)
+        return slot_dt < get_local_now()
     except (ValueError, TypeError):
         return False
 
