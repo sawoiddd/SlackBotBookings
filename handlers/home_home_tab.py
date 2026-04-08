@@ -10,7 +10,7 @@ def _home_action_block(text: str, button_text: str, value: str, action_id: str) 
         "text": {"type": "mrkdwn", "text": text},
         "accessory": {
             "type": "button",
-            "text": {"type": "plain_text", "text": button_text},
+            "text": {"type": "plain_text", "text": button_text, "emoji": True},
             "style": "primary",
             "value": value,
             "action_id": action_id,
@@ -25,35 +25,35 @@ def build_home_tab_view() -> dict:
         "blocks": [
             {
                 "type": "header",
-                "text": {"type": "plain_text", "text": " Панель бронювання скайп румів та сайлент боксів"},
+                "text": {"type": "plain_text", "text": "Панель бронювання скайп румів та сайлент боксів", "emoji": False},
             },
             {
                 "type": "context",
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "Вітаємо! Оберіть дію нижче, щоб знайти та забронювати вільну кімнату.\n Максимальний час бронювання на день: 3 години.\nСкайп рум 1.12 немає столика!!!",
+                        "text": "Вітаємо! Оберіть дію нижче, щоб знайти та забронювати вільну кімнату.\nМаксимальний час бронювання на день: 3 години.\nСкайп рум 1.12 немає столика!!!",
                     }
                 ],
             },
             {"type": "divider"},
             _home_action_block(
-                text="* Обирай час, а кімнату знайде бот*\n_Вкажи потрібний час, і ми підберемо найкращий варіант._",
-                button_text="⏰ Book time",
+                text="*Обирай час, а кімнату знайде бот*\n_Вкажи потрібний час, і ми підберемо найкращий варіант._",
+                button_text=":clock3: Book time",
                 value="book_time",
                 action_id="action_book_time",
             ),
             {"type": "divider"},
             _home_action_block(
-                text="* Вибери кімнату та число*\n_Перевір розклад улюбленої кімнати та знайди вільні вікна._",
-                button_text="📅 Book room",
+                text="*Вибери кімнату та число*\n_Перевір розклад улюбленої кімнати та знайди вільні вікна._",
+                button_text=":calendar: Book room",
                 value="book_room",
                 action_id="action_book_room",
             ),
             {"type": "divider"},
             _home_action_block(
                 text="*Вільний спейс прямо на зараз на 30хв*\n_Потрібне місце негайно? Бронюй в один клік._",
-                button_text="⚡ Hot Booking",
+                button_text=":zap: Hot Booking",
                 value="hot_booking",
                 action_id="action_hot_booking",
             ),
