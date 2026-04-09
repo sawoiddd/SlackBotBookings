@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project map (Slack Socket Mode bot)
-- **`main.py`** — entrypoint: loads `.env` via `utils.config_env.load_tokens_from_env`, builds `AsyncApp`, awaits `register_home_handlers(app, tokens)` inside `async main()`, starts `AsyncSocketModeHandler`.
+- **`main.py`** — entrypoint: loads env via `utils.config_env_dotenv.load_tokens_from_env`, builds `AsyncApp`, awaits `register_home_handlers(app, tokens)` inside `async main()`, starts `AsyncSocketModeHandler`. Handles `SIGTERM`/`SIGINT` via `_raise_graceful_exit()` → `SystemExit(0)` for clean shutdown in Docker.
 - **`home.py`** — thin orchestrator: builds `YaroomsClient`, wires feature-specific handler registrars.
 - **`handlers/home_home_tab.py`** — Home tab event handler (`app_home_opened`) and dashboard view.
 - **`handlers/home_book_time.py`** — Book by Time action/view handlers.
@@ -14,8 +14,12 @@
 - **`utils/slack_notifications.py`** — shared chat notification helper (`notify_booking_in_chat`), now includes DM cancellation button when `booking_id` is known.
 - **`utils/daily_quota.py`** — per-user daily booking quota tracker (`DailyQuotaTracker`). Uses Redis (primary) with in-memory fallback. Counter is incremented **only after** `create_booking` succeeds and decremented after successful cancellation (`record_cancellation`).
 - **`clients/yarooms_client.py`** — async Yarooms API client (`YaroomsClient`). Methods include `get_spaces`, `get_spaces_cached`, `get_space_availability`, `get_space_day_schedule`, `is_interval_free`, `find_available_space`, `create_booking`, `delete_booking`, `extract_booking_id`, `resolve_account_id`, `from_credentials`, `close`. Endpoint paths/response shapes are documented in the file and must be verified against https://api-docs.yarooms.com/#introduction.
-- **`utils/config_env.py`** — environment loader/validator for required Slack/Yarooms keys.
+- **`utils/config_env_dotenv.py`** — **active** environment loader using `python-dotenv`. Hybrid strategy: loads `.env` file with `override=False` so system env vars (Heroku Config Vars, Docker env) always win. Raises `KeyError` with deployment-friendly messages on missing vars.
+- **`utils/config_env.py`** — legacy hand-rolled `.env` parser (kept for rollback). To revert, swap the import in `main.py`.
 - **`utils/slack_log_handler.py`** — empty placeholder (reserved for future Slack-channel log handler).
+- **`Dockerfile`** — Python 3.13-slim, non-root `bot` user, `STOPSIGNAL SIGTERM`, liveness healthcheck. No ports exposed (Socket Mode is outbound WebSocket).
+- **`docker-compose.yml`** — two services: `bot` (app) + `redis` (Redis 7 Alpine). Auto-sets `REDIS_URL=redis://redis:6379/0` and `TZ`/`TIMEZONE=Europe/Kyiv` for the bot container.
+- **`Procfile`** — Heroku worker process: `worker: python main.py` (no web dyno — Socket Mode is outbound-only).
 
 ## Required environment keys
 Add these to `.env` (already gitignored).
@@ -122,6 +126,20 @@ pip install -r requirements.txt   # install dependencies
 cp .env.example .env              # bootstrap local env file
 python3 main.py                   # run bot
 ```
+
+### Docker Compose
+```bash
+cp .env.example .env              # fill in credentials (REDIS_URL not needed — docker-compose sets it)
+docker compose up -d --build      # bot + Redis
+docker compose logs -f bot        # follow logs
+docker compose down               # stop
+```
+
+### Heroku
+The `Procfile` declares a `worker` process (`worker: python main.py`). No web dyno is needed — Socket Mode uses outbound WebSocket. Set all required env vars as Heroku Config Vars; `python-dotenv` silently no-ops when `.env` is absent.
+
+### Dependencies (`requirements.txt`)
+`slack-bolt`, `aiohttp`, `redis`, `python-dotenv`. Pinned versions in `requirements.txt`.
 
 ## Integrations and secrets
 - Slack Bolt async stack: `slack_bolt.async_app.AsyncApp` + `slack_bolt.adapter.socket_mode.aiohttp.AsyncSocketModeHandler`.

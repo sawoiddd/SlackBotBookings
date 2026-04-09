@@ -101,7 +101,15 @@ def register_hot_booking_handlers(app, yarooms, quota):
                     continue
 
             if space is None:
-                raise RuntimeError("Наразі немає вільних кімнат.")
+                await client.views_update(
+                    view_id=new_view_id,
+                    view=common.simple_modal(
+                        "Швидке бронювання",
+                        "😔 Наразі немає вільних кімнат на найближчі 30 хвилин. "
+                        "Спробуйте пізніше або скористайтеся бронюванням за часом.",
+                    ),
+                )
+                return
 
             booking_result = await yarooms.create_booking(
                 space_id=space["id"],
