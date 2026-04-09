@@ -18,6 +18,19 @@ def _home_action_block(text: str, button_text: str, value: str, action_id: str) 
     }
 
 
+def _error_home_view(message: str = "Не вдалося завантажити панель. Спробуйте оновити вкладку.") -> dict:
+    """Minimal fallback Home tab view shown when the main view cannot be published."""
+    return {
+        "type": "home",
+        "blocks": [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f":warning: {message}"},
+            }
+        ],
+    }
+
+
 def build_home_tab_view() -> dict:
     """Return the full Home tab view payload."""
     return {
@@ -25,7 +38,8 @@ def build_home_tab_view() -> dict:
         "blocks": [
             {
                 "type": "header",
-                "text": {"type": "plain_text", "text": "Панель бронювання скайп румів та сайлент боксів", "emoji": False},
+                # emoji must be True — False causes rendering issues on Android
+                "text": {"type": "plain_text", "text": "Панель бронювання скайп румів та сайлент боксів", "emoji": True},
             },
             {
                 "type": "context",
@@ -67,12 +81,29 @@ def register_home_tab_handlers(app):
     @app.event("app_home_opened")
     async def update_home_tab(client, event, logger):
         """Publish the app Home tab with booking entry points."""
+        # Guard: app_home_opened fires for every tab (home, messages, dm).
+        # Only publish a Home view when the user actually opens the Home tab;
+        # spurious publishes on other tabs can hit rate limits and cause the
+        # real Home tab open to be dropped → infinite spinner on Android.
+        if event.get("tab") != "home":
+            return
+
+        user_id = event["user"]
         try:
             await client.views_publish(
-                user_id=event["user"],
+                user_id=user_id,
                 view=build_home_tab_view(),
             )
         except Exception as e:
-            logger.error(f"Error publishing home tab: {e}")
+            logger.error(f"Error publishing home tab for user {user_id}: {e}")
+            # Publish a minimal fallback so Android does not spin forever
+            # waiting for a view that never arrives.
+            try:
+                await client.views_publish(
+                    user_id=user_id,
+                    view=_error_home_view(),
+                )
+            except Exception as fallback_err:
+                logger.error(f"Failed to publish fallback home tab for user {user_id}: {fallback_err}")
 
 

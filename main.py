@@ -15,10 +15,10 @@ from datetime import datetime, timezone
 # basicConfig() afterwards it becomes a no-op (Python only adds a handler when
 # none exist). We force our own StreamHandler unconditionally instead.
 # Old config loader (hand-rolled .env parser) — kept for reference / rollback:
-from utils.config_env import load_tokens_from_env
+#from utils.config_env import load_tokens_from_env
 #to local deploy use this
 # New Heroku-ready loader using python-dotenv (hybrid .env file + system env):
-# from utils.config_env_dotenv import load_tokens_from_env
+from utils.config_env_dotenv import load_tokens_from_env
 
 tokens = load_tokens_from_env()
 
